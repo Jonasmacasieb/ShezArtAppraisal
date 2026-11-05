@@ -1122,20 +1122,12 @@ If no object can be identified, return an empty objects array.
                 const API_URL =
                     `https://generativelanguage.googleapis.com/v1beta/models/${SCOUTER_CONFIG.model}:generateContent?key=${customApiKey}`;
 
-                const response = await fetchWithRetry(apiUrl, {
-
+                const response = await fetch(API_URL, {
                     method: "POST",
-
                     headers: {
-
-                        "Content-Type": "application/json",
-
-                        "x-goog-api-key": customApiKey.trim()
-
+                        "Content-Type": "application/json"
                     },
-
-                    body: JSON.stringify(payload)
-
+                    body: JSON.stringify(requestBody)
                 });
 
 
