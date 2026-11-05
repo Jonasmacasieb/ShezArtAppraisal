@@ -374,7 +374,18 @@
         const targetFPS = 30;
         const frameInterval = 1000 / targetFPS;
 
+        
+        const SCOUTER_CONFIG = {
+            imageMaxWidth: 1024,
+            imageQuality: 0.85,
+            maxObjects: 10,
+            marketRegion: "Philippines",
+            currency: "PHP",
+            model: "gemini-2.5-flash"
+        };
+
         let customApiKey = sessionStorage.getItem('GEMINI_CUSTOM_API_KEY') || '';
+
 
         // --- AUDIO SYNTHESIZER ---
         function initAudioContext() {
