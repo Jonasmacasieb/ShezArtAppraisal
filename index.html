@@ -381,7 +381,7 @@
             maxObjects: 10,
             marketRegion: "Philippines",
             currency: "PHP",
-            model: "gemini-2.5-flash"
+            model: "gemini-3.8-flash"
         };
 
         let customApiKey = sessionStorage.getItem('GEMINI_CUSTOM_API_KEY') || '';
@@ -1119,8 +1119,8 @@ If no object can be identified, return an empty objects array.
                 // 5. SEND GEMINI REQUEST
                 // =====================================
 
-                const apiUrl =
-                    `https://generativelanguage.googleapis.com/v1beta/models/${SCOUTER_CONFIG.model}:generateContent`;
+                const API_URL =
+                    `https://generativelanguage.googleapis.com/v1beta/models/${SCOUTER_CONFIG.model}:generateContent?key=${customApiKey}`;
 
                 const response = await fetchWithRetry(apiUrl, {
 
