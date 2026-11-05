@@ -602,11 +602,27 @@
             }
         }
 
-        async function startCamera() {
+   async function startCamera() {
+    const badge = document.getElementById('camSourceBadge');
+
+    if (!video) {
+        console.error('Webcam element is missing.');
+        alert('Camera error: video element was not initialized.');
+        return;
+    }
+
+    if (!badge) {
+        console.error('Camera badge element is missing.');
+        return;
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
         isVideoReady = false;
-        document.getElementById('camSourceBadge').textContent = 'CAMERA UNSUPPORTED';
-        alert('Camera access is unavailable. Open this app using HTTPS in Chrome or localhost.');
+        badge.textContent = 'CAMERA UNSUPPORTED';
+
+        alert(
+            'Camera access is unavailable. Open OBJECT SCOUTER using HTTPS in Chrome.'
+        );
         return;
     }
 
@@ -615,16 +631,16 @@
             cameraStream.getTracks().forEach(track => track.stop());
         }
 
-        const constraints = {
+        isVideoReady = false;
+
+        cameraStream = await navigator.mediaDevices.getUserMedia({
             video: {
-                facingMode: currentFacingMode,
+                facingMode: { ideal: currentFacingMode },
                 width: { ideal: 1280 },
                 height: { ideal: 720 }
             },
             audio: false
-        };
-
-        cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+        });
 
         video.srcObject = cameraStream;
         video.muted = true;
@@ -634,13 +650,14 @@
 
         isVideoReady = true;
 
-        document.getElementById('camSourceBadge').textContent =
+        badge.textContent =
             currentFacingMode === 'user' ? 'FRONT CAM' : 'REAR CAM';
+
+        console.log('Camera started successfully.');
 
     } catch (err) {
         isVideoReady = false;
-
-        document.getElementById('camSourceBadge').textContent = 'CAMERA ERROR';
+        badge.textContent = 'CAMERA ERROR';
 
         console.error('Camera error:', err.name, err.message);
 
