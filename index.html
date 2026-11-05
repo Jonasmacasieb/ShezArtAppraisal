@@ -604,66 +604,31 @@
         }
 
         async function startCamera() {
-            const badge = document.getElementById('camSourceBadge');
-
-            if (!navigator.mediaDevices?.getUserMedia) {
-                isVideoReady = false;
-                badge.textContent = 'CAMERA UNSUPPORTED';
-                alert('Camera requires HTTPS or localhost.');
-                return;
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
             }
 
             try {
-                if (cameraStream) {
-                    cameraStream.getTracks().forEach(track => track.stop());
-                    cameraStream = null;
-                }
-
-                isVideoReady = false;
-                badge.textContent = 'SEARCHING CAMERA...';
-
-                // Check available cameras
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const cameras = devices.filter(device => device.kind === 'videoinput');
-
-                if (cameras.length === 0) {
-                    throw new DOMException(
-                        'No camera was detected by the browser.',
-                        'NotFoundError'
-                    );
-                }
-
-                // Request any available camera
-                cameraStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
+                const constraints = {
+                    video: {
+                        facingMode: currentFacingMode,
+                        width: { ideal: 854, max: 1280 },
+                        height: { ideal: 480, max: 720 },
+                        frameRate: { ideal: 30 }
+                    },
                     audio: false
-                });
-
+                };
+                cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = cameraStream;
                 await video.play();
-
                 isVideoReady = true;
-                badge.textContent = 'CAMERA CONNECTED';
-
+                document.getElementById('camSourceBadge').textContent =
+                    currentFacingMode === 'user' ? 'FRONT CAM' : 'REAR CAM';
             } catch (err) {
-                console.error('Camera error:', err);
-
                 isVideoReady = false;
-                badge.textContent = 'CAMERA ERROR';
-
-                if (cameraStream) {
-                    cameraStream.getTracks().forEach(track => track.stop());
-                    cameraStream = null;
-                }
-
-                alert(
-                    'Camera Error: ' + err.name +
-                    '\n\n' + err.message +
-                    '\n\nCheck your camera connection and browser permissions.'
-                );
+                document.getElementById('camSourceBadge').textContent = 'SIMULATION';
             }
         }
-
 
         function toggleCameraFacing() {
             currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
