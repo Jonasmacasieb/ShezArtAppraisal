@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100 select-none">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OBJECT SCOUTER</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    
+    <style>
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+        .font-rajdhani { font-family: 'Rajdhani', sans-serif; }
+        .font-mono-tech { font-family: 'Share Tech Mono', monospace; }
+
+        /* CRT SCANLINES EFFECT */
+        .crt-scanlines::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            z-index: 15;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        /* CYBER HUD GLASS PANELS */
+        .cyber-glass {
+            background: rgba(3, 7, 18, 0.85);
+            border: 1px solid rgba(6, 182, 212, 0.4);
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
+            will-change: transform;
+            transform: translateZ(0);
+        }
+
+        /* BOFURI ANIME HUD SPECIFIC STYLES */
+        .bofuri-card {
+            background: rgba(10, 15, 30, 0.94);
+            border: 1px solid rgba(6, 182, 212, 0.7);
+            box-shadow: 0 0 25px rgba(6, 182, 212, 0.35), inset 0 0 15px rgba(6, 182, 212, 0.1);
+            clip-path: polygon(0 10px, 10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px));
+        }
+
+        .bofuri-thumb-frame {
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.8);
+            position: relative;
+        }
+
+        .bofuri-pointer-line {
+            position: relative;
+        }
+        .bofuri-pointer-line::before {
+            content: '';
+            position: absolute;
+            left: -12px;
+            top: 50%;
+            width: 10px;
+            height: 2px;
+            background: #06b6d4;
+            box-shadow: 0 0 6px #06b6d4;
+        }
+
+        @keyframes laserSweep {
+            0% { top: 0%; opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { top: 100%; opacity: 0.2; }
+        }
+        .animate-laser {
+            animation: laserSweep 1.5s infinite linear;
+        }
+    </style>
+</head>
+<body class="h-full bg-slate-950 text-slate-100 crt-scanlines relative overflow-hidden">
+
+    <!-- HIDDEN VIDEO & PROCESS CANVAS -->
+    <video id="webcam" class="hidden" playsinline muted></video>
+
+    <!-- MAIN RENDER CANVAS (CAMERA FEED + RETICLE) -->
+    <canvas id="appCanvas" class="absolute inset-0 w-full h-full z-0 cursor-crosshair"></canvas>
+
+    <!-- SCANNING LASER OVERLAY -->
+    <div id="scanningLaser" class="hidden absolute left-0 right-0 h-1.5 bg-gradient-to-r from-transparent via-pink-500 to-transparent shadow-[0_0_30px_#ec4899] z-10 animate-laser pointer-events-none"></div>
+
+    <!-- MAIN HUD UI LAYER -->
+    <div class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-3 sm:p-5">
+        
+        <!-- TOP NAVIGATION & STATUS BAR -->
+        <div class="flex justify-between items-start w-full gap-2">
+            
+            <!-- Left Info Panel (Clean Scouter Telemetry) -->
+            <div class="pointer-events-auto cyber-glass p-3 rounded-xl border-l-4 border-l-cyan-400 flex flex-col gap-1 min-w-[160px] sm:min-w-[190px]">
+                <div class="flex items-center justify-between text-cyan-400 font-orbitron text-xs font-bold tracking-wider">
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></span>
+                        FULL-VIEW HUD
+                    </span>
+                    <span id="camSourceBadge" class="text-[9px] bg-cyan-950/80 px-1.5 py-0.5 rounded text-cyan-300">USER CAM</span>
+                </div>
+                <div class="text-[10px] font-mono-tech text-slate-300 flex justify-between pt-1">
+                    <span>MODE:</span>
+                    <span class="text-emerald-400 font-bold">FULL CAMERA LOCK</span>
+                </div>
+                <div class="text-[10px] font-mono-tech text-slate-400 flex justify-between">
+                    <span>STATUS:</span>
+                    <span id="scouterStatusTextTop" class="text-cyan-300 font-bold">ACTIVE SCANNER</span>
+                </div>
+            </div>
+
+            <!-- Header Title (Desktop) -->
+            <div class="hidden lg:flex flex-col items-center">
+                <div class="font-orbitron text-sm font-black tracking-widest text-cyan-300 bg-slate-950/80 px-6 py-1.5 rounded-b-xl border-b-2 border-cyan-500/60 shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center gap-2">
+                    <i class="fa-solid fa-eye text-pink-400 animate-pulse"></i>
+                    OBJECT SCOUTER
+                </div>
+                <div class="text-[9px] font-mono-tech text-cyan-400/70 tracking-widest mt-1">
+                    AI OBJECT ANALYSIS & ARCHIVE
+                </div>
+            </div>
+
+            <!-- Right Controls: Drawer Toggle, Settings Gear Menu, Sound -->
+            <div class="pointer-events-auto flex items-center gap-2">
+                <button onclick="toggleInventoryDrawer()" 
+                        class="cyber-glass px-3 py-2 rounded-xl text-xs font-mono-tech text-amber-400 hover:border-amber-400 hover:bg-amber-500/20 active:scale-95 transition-all flex items-center gap-1.5"
+                        title="View Saved Scans Log">
+                    <i class="fa-solid fa-box-archive text-amber-400"></i>
+                    <span class="hidden sm:inline font-bold">INVENTORY</span>
+                    <span id="inventoryBadgeCount" class="bg-amber-500 text-slate-950 px-1.5 py-0.2 rounded-full text-[10px] font-bold">0</span>
+                </button>
+
+                <!-- Hidden Collapsible Engine & API Key Settings Menu Toggle -->
+                <button onclick="toggleSettingsMenu()" 
+                        class="cyber-glass p-2.5 rounded-xl text-cyan-300 hover:border-cyan-300 hover:bg-cyan-500/20 active:scale-95 transition-all"
+                        title="Engine Settings & Security">
+                    <i class="fa-solid fa-gear text-sm"></i>
+                </button>
+
+                <button onclick="toggleAudioMute()" 
+                        class="cyber-glass p-2.5 rounded-xl text-cyan-300 hover:border-cyan-300 hover:bg-cyan-500/20 active:scale-95 transition-all"
+                        title="Toggle Sound">
+                    <i id="audioBtnIcon" class="fa-solid fa-volume-high text-sm"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- COLLAPSIBLE SETTINGS & ENGINE DRAWER -->
+        <div id="settingsDrawer" class="hidden pointer-events-auto my-2 max-w-sm ml-auto w-full cyber-glass p-4 rounded-xl border border-cyan-400/50 shadow-2xl transition-all">
+            <div class="flex justify-between items-center border-b border-cyan-500/30 pb-2 mb-3">
+                <h4 class="font-orbitron text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                    <i class="fa-solid fa-sliders text-amber-400"></i> ENGINE & SECURITY SETTINGS
+                </h4>
+                <button onclick="toggleSettingsMenu()" class="text-slate-400 hover:text-white text-xs">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-3 text-xs font-mono-tech">
+                <div>
+                    <span class="text-slate-400 block mb-1">AI APPRAISAL ENGINE:</span>
+                    <div class="bg-slate-900/80 p-2 rounded-lg border border-slate-700/60 text-emerald-400 font-bold flex items-center justify-between">
+                        <span>GEMINI VISION AI</span>
+                        <i class="fa-solid fa-check-circle text-xs"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- APPRAISAL RESULT CARD DISPLAY MODAL (ANIME BOFURI HUD STYLE) -->
+        <div id="appraisalCard" class="hidden pointer-events-auto my-auto sm:my-0 sm:mt-auto sm:mb-4 mx-auto sm:ml-4 sm:mr-auto max-w-sm w-full bofuri-card p-3 rounded-xl z-30 transition-all transform scale-100">
+            <!-- Top Header Bar -->
+            <div class="flex justify-between items-center border-b border-cyan-500/40 pb-1.5 mb-2">
+                <div class="flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                    <span class="text-[9px] font-orbitron text-cyan-300 font-bold tracking-widest">SYSTEM APPRAISAL // HUD</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="itemRarity" class="font-orbitron font-extrabold text-[9px] px-2 py-0.5 bg-gradient-to-r from-cyan-500 to-pink-500 text-slate-950 rounded shadow">S-RANK</span>
+                    <button onclick="closeAppraisalCard()" class="text-slate-400 hover:text-white text-xs">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Anime Layout: Tiny Image Frame Left + Cyan Pointing Lines -->
+            <div class="flex gap-3 items-start relative">
+                
+                <!-- Tiny Scanned Target Frame -->
+                <div class="flex flex-col items-center flex-shrink-0 z-10">
+                    <div class="bofuri-thumb-frame w-16 h-16 rounded-lg overflow-hidden border-2 border-amber-400 bg-slate-900 shadow-[0_0_12px_rgba(245,158,11,0.6)]">
+                        <img id="appraisalThumbImg" src="https://placehold.co/100x100/0f172a/06b6d4?text=SCAN" class="w-full h-full object-cover">
+                    </div>
+                    <span id="itemClassTag" class="mt-1 text-[8px] font-mono-tech bg-amber-500/20 text-amber-300 px-1 py-0.5 rounded uppercase font-bold text-center w-full truncate border border-amber-500/40">ARTIFACT</span>
+                </div>
+
+                <!-- Pointing Callout Info Blocks -->
+                <div class="flex-1 space-y-1.5 font-mono-tech text-[10px] min-w-0 pl-1">
+                    
+                    <!-- Target Name Callout -->
+                    <div class="bofuri-pointer-line bg-slate-900/90 p-1.5 rounded border-l-2 border-l-cyan-400 border border-slate-800 shadow">
+                        <span class="text-[8px] text-cyan-400 uppercase block font-bold">TARGET IDENTIFIED:</span>
+                        <h2 id="itemName" class="font-orbitron font-black text-xs text-amber-300 truncate">OBJECT NAME</h2>
+                    </div>
+
+                    <!-- Description Callout -->
+                    <div class="bofuri-pointer-line bg-slate-900/90 p-1.5 rounded border-l-2 border-l-pink-500 border border-slate-800 shadow">
+                        <p id="itemDescription" class="text-slate-200 text-[9px] leading-snug line-clamp-2">
+                            Object analysis description...
+                        </p>
+                    </div>
+
+                    <!-- Issues & Solutions Split Pointer -->
+                    <div class="grid grid-cols-2 gap-1 pt-0.5">
+                        <div class="bg-slate-900/90 p-1 rounded border-l-2 border-l-red-500 border border-slate-800 shadow">
+                            <span class="text-red-400 text-[7px] font-bold block uppercase">ISSUE:</span>
+                            <p id="itemIssues" class="text-slate-300 text-[9px] truncate">None</p>
+                        </div>
+                        <div class="bg-slate-900/90 p-1 rounded border-l-2 border-l-emerald-400 border border-slate-800 shadow">
+                            <span class="text-emerald-400 text-[7px] font-bold block uppercase">SOLUTION:</span>
+                            <p id="itemSolutions" class="text-slate-300 text-[9px] truncate">Regular upkeep</p>
+                        </div>
+                    </div>
+
+                    <div id="groundingSources" class="flex flex-wrap gap-1 text-[8px] text-cyan-400/80 pt-0.5"></div>
+                </div>
+            </div>
+
+            <!-- Bottom Action Bar -->
+            <div class="mt-2 pt-1.5 border-t border-cyan-500/30 flex justify-between items-center">
+                <button onclick="captureSnapshot()" class="px-2 py-0.5 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/50 rounded text-cyan-300 font-orbitron text-[9px] font-bold flex items-center gap-1">
+                    <i class="fa-solid fa-camera"></i> SAVE CARD
+                </button>
+                <button onclick="closeAppraisalCard()" class="px-2.5 py-0.5 bg-slate-900 hover:bg-slate-800 rounded text-slate-300 font-orbitron text-[9px]">
+                    CLOSE
+                </button>
+            </div>
+        </div>
+
+        <!-- BOTTOM ACTION BAR WITH HIGHEST PRIORITY Z-INDEX -->
+        <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto flex items-center justify-center gap-3 w-11/12 max-w-sm px-2">
+            
+            <!-- Main Appraisal Button -->
+            <button id="scanBtn" onclick="appraiseObjectWithGemini()" 
+                    class="flex-1 py-4 px-6 rounded-2xl bg-gradient-to-r from-cyan-500 via-pink-500 to-amber-500 text-slate-950 font-orbitron font-black text-sm tracking-wider uppercase shadow-[0_0_30px_rgba(6,182,212,0.9)] hover:shadow-[0_0_45px_rgba(236,72,153,1)] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer border-2 border-cyan-300">
+                <i class="fa-solid fa-magnifying-glass text-slate-950 text-base"></i>
+                <span id="scanBtnText" class="font-black tracking-widest text-slate-950">APPRAISE OBJECT</span>
+            </button>
+
+            <!-- Camera Flip Button -->
+            <button onclick="toggleCameraFacing()" 
+                    class="p-4 rounded-2xl bg-slate-950/90 border-2 border-cyan-400 text-cyan-300 hover:bg-cyan-500/20 active:scale-95 transition-all shadow-[0_0_20px_rgba(6,182,212,0.5)] flex-shrink-0 cursor-pointer"
+                    title="Switch Camera">
+                <i class="fa-solid fa-camera-rotate text-base"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- INVENTORY LOG SIDE DRAWER (INDEXEDDB STORAGE) -->
+    <div id="inventoryDrawer" class="fixed inset-y-0 right-0 z-40 w-full sm:w-96 cyber-glass p-5 flex flex-col justify-between transform translate-x-full transition-transform duration-300 border-l border-amber-500/40 pointer-events-auto">
+        <div>
+            <!-- Drawer Header -->
+            <div class="flex justify-between items-center border-b border-cyan-500/30 pb-3 mb-4">
+                <h3 class="font-orbitron font-bold text-cyan-300 text-base flex items-center gap-2">
+                    <i class="fa-solid fa-database text-amber-400"></i> SCOUTER ARCHIVE
+                </h3>
+                <button onclick="toggleInventoryDrawer()" class="text-slate-400 hover:text-white text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="mb-4">
+                <input type="text" id="inventorySearch" oninput="filterInventory()" placeholder="Filter saved items..." 
+                       class="w-full bg-slate-900/90 border border-cyan-500/40 rounded-xl px-3.5 py-2 text-xs text-cyan-300 focus:outline-none focus:border-cyan-300 font-mono-tech">
+            </div>
+
+            <!-- Saved Scans List Container -->
+            <div id="inventoryList" class="space-y-2.5 overflow-y-auto max-h-[calc(100vh-220px)] pr-1"></div>
+        </div>
+
+        <!-- Footer Database Actions -->
+        <div class="pt-3 border-t border-slate-800 flex justify-between items-center">
+            <span id="dbStorageStatus" class="text-[10px] font-mono-tech text-slate-400">STORAGE: INDEXEDDB (FREE)</span>
+            <button onclick="clearAllScans()" class="text-[11px] font-mono-tech text-red-400 hover:text-red-300 underline">
+                CLEAR DATABASE
+            </button>
+        </div>
+    </div>
+
+    <!-- CONSOLIDATED APPLICATION SCRIPT -->
+    <script>
+        // --- GLOBAL VARIABLES & STATE ---
+        let audioCtx = null;
+        let isAudioMuted = false;
+
+        const DB_NAME = 'ScouterObjectDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'scans';
+        let db = null;
+        let cachedScansList = [];
+
+        let canvas, ctx, video;
+        let cameraStream = null;
+        let isVideoReady = false;
+        let isScanning = false;
+        let currentFacingMode = 'environment';
+
+        let lastFrameTime = 0;
+        const targetFPS = 30;
+        const frameInterval = 1000 / targetFPS;
+
+        let customApiKey = sessionStorage.getItem('GEMINI_CUSTOM_API_KEY') || '';
+
+        // --- AUDIO SYNTHESIZER ---
+        function initAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSynthSound(freq, type, duration, vol = 0.1) {
+            if (isAudioMuted || !audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {}
+        }
+
+        function playScanCompleteSound() {
+            if (isAudioMuted || !audioCtx) return;
+            playSynthSound(587.33, 'triangle', 0.15, 0.2);
+            setTimeout(() => playSynthSound(880, 'triangle', 0.25, 0.25), 100);
+        }
+
+        function toggleAudioMute() {
+            isAudioMuted = !isAudioMuted;
+            const icon = document.getElementById('audioBtnIcon');
+            if (isAudioMuted) {
+                icon.className = 'fa-solid fa-volume-xmark text-red-400';
+            } else {
+                icon.className = 'fa-solid fa-volume-high text-cyan-300';
+                initAudioContext();
+                playSynthSound(800, 'sine', 0.1);
+            }
+        }
+
+        // --- INDEXEDDB LOCAL STORAGE ---
+        function initDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = (e) => {
+                    const dbInstance = e.target.result;
+                    if (!dbInstance.objectStoreNames.contains(STORE_NAME)) {
+                        dbInstance.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+                request.onsuccess = (e) => {
+                    db = e.target.result;
+                    loadSavedScansFromDB();
+                    resolve(db);
+                };
+                request.onerror = (e) => {
+                    console.error("IndexedDB error:", e);
+                    reject(e);
+                };
+            });
+        }
+
+        function saveScanToDB(record) {
+            return new Promise((resolve, reject) => {
+                if (!db) return resolve();
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                store.put(record);
+                tx.oncomplete = () => {
+                    loadSavedScansFromDB();
+                    resolve();
+                };
+                tx.onerror = (e) => reject(e);
+            });
+        }
+
+        function getAllScansFromDB() {
+            return new Promise((resolve, reject) => {
+                if (!db) return resolve([]);
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result || []);
+                request.onerror = (e) => reject(e);
+            });
+        }
+
+        function deleteScanFromDB(id) {
+            return new Promise((resolve, reject) => {
+                if (!db) return resolve();
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                store.delete(id);
+                tx.oncomplete = () => {
+                    loadSavedScansFromDB();
+                    resolve();
+                };
+                tx.onerror = (e) => reject(e);
+            });
+        }
+
+        function clearAllScans() {
+            if (!confirm('Delete all saved scans from local database?')) return;
+            if (!db) return;
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            store.clear();
+            tx.oncomplete = () => loadSavedScansFromDB();
+        }
+
+        async function loadSavedScansFromDB() {
+            try {
+                cachedScansList = await getAllScansFromDB();
+                document.getElementById('inventoryBadgeCount').textContent = cachedScansList.length;
+                renderInventoryList(cachedScansList);
+            } catch (e) {
+                console.error("Failed to load inventory:", e);
+            }
+        }
+
+        function renderInventoryList(list) {
+            const container = document.getElementById('inventoryList');
+            container.innerHTML = '';
+
+            if (list.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-slate-500 font-mono-tech text-xs">
+                        NO SAVED SCANS FOUND IN INDEXEDDB.
+                    </div>`;
+                return;
+            }
+
+            list.sort((a, b) => b.timestamp - a.timestamp).forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'bg-slate-900/90 border border-slate-700/60 p-2.5 rounded-xl flex gap-3 items-center hover:border-amber-400/60 transition-all cursor-pointer';
+                card.onclick = () => {
+                    displayAppraisalResult(item);
+                    toggleInventoryDrawer();
+                };
+
+                const dateStr = new Date(item.timestamp).toLocaleDateString();
+
+                card.innerHTML = `
+                    <img src="${item.thumbnail || 'https://placehold.co/100x100/0f172a/06b6d4?text=SCAN'}" class="w-14 h-14 object-cover rounded-lg border border-cyan-500/30 flex-shrink-0">
+                    <div class="flex-1 overflow-hidden">
+                        <div class="flex justify-between items-start">
+                            <h4 class="font-orbitron font-bold text-xs text-white truncate">${item.objectName}</h4>
+                            <span class="text-[9px] font-mono-tech text-amber-400 font-bold">${item.rarity}</span>
+                        </div>
+                        <p class="text-[10px] text-slate-400 truncate font-mono-tech">${item.category}</p>
+                        <span class="text-[9px] text-slate-500 font-mono-tech">${dateStr}</span>
+                    </div>
+                    <button onclick="event.stopPropagation(); deleteScanItem('${item.id}')" class="text-slate-500 hover:text-red-400 p-1.5 text-xs">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function filterInventory() {
+            const query = document.getElementById('inventorySearch').value.toLowerCase();
+            const filtered = cachedScansList.filter(item => 
+                item.objectName.toLowerCase().includes(query) || 
+                item.category.toLowerCase().includes(query) ||
+                item.rarity.toLowerCase().includes(query)
+            );
+            renderInventoryList(filtered);
+        }
+
+        async function deleteScanItem(id) {
+            await deleteScanFromDB(id);
+        }
+
+        function toggleInventoryDrawer() {
+            const drawer = document.getElementById('inventoryDrawer');
+            drawer.classList.toggle('translate-x-full');
+        }
+
+        // --- CAMERA & CANVAS RENDERING ---
+        function initCameraElements() {
+            canvas = document.getElementById('appCanvas');
+            ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+            video = document.getElementById('webcam');
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+        }
+
+        function resizeCanvas() {
+            if (canvas) {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+        }
+
+        async function startCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+            }
+
+            try {
+                const constraints = {
+                    video: { 
+                        facingMode: currentFacingMode, 
+                        width: { ideal: 854, max: 1280 }, 
+                        height: { ideal: 480, max: 720 },
+                        frameRate: { ideal: 30 }
+                    },
+                    audio: false
+                };
+                cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = cameraStream;
+                await video.play();
+                isVideoReady = true;
+                document.getElementById('camSourceBadge').textContent = 
+                    currentFacingMode === 'user' ? 'FRONT CAM' : 'REAR CAM';
+            } catch (err) {
+                isVideoReady = false;
+                document.getElementById('camSourceBadge').textContent = 'SIMULATION';
+            }
+        }
+
+        function toggleCameraFacing() {
+            currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+            startCamera();
+        }
+
+        function renderLoop(timestamp) {
+            requestAnimationFrame(renderLoop);
+
+            const elapsed = timestamp - lastFrameTime;
+            if (elapsed < frameInterval) return;
+            lastFrameTime = timestamp - (elapsed % frameInterval);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (isVideoReady && video.readyState >= 2) {
+                ctx.save();
+                if (currentFacingMode === 'user') {
+                    ctx.translate(canvas.width, 0);
+                    ctx.scale(-1, 1);
+                }
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                ctx.restore();
+            } else {
+                ctx.fillStyle = '#030712';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = 'rgba(6, 182, 212, 0.15)';
+                for (let x = 0; x < canvas.width; x += 60) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+                }
+                for (let y = 0; y < canvas.height; y += 60) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+                }
+            }
+
+            drawFullscreenGridLines();
+        }
+
+        function drawFullscreenGridLines() {
+            ctx.save();
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+
+            ctx.strokeStyle = isScanning ? 'rgba(236, 72, 153, 0.6)' : 'rgba(6, 182, 212, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([6, 6]);
+
+            ctx.beginPath();
+            ctx.moveTo(cx - 40, cy); ctx.lineTo(cx + 40, cy);
+            ctx.moveTo(cx, cy - 40); ctx.lineTo(cx, cy + 40);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+            ctx.strokeStyle = isScanning ? '#ec4899' : '#06b6d4';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // --- GEMINI VISION AI APPRAISAL LOGIC ---
+        async function appraiseObjectWithGemini() {
+            if (isScanning) return;
+            isScanning = true;
+            initAudioContext();
+
+            document.getElementById('scanningLaser').classList.remove('hidden');
+            document.getElementById('scanBtnText').textContent = 'APPRAISING...';
+            document.getElementById('scouterStatusTextTop').textContent = 'APPRAISING...';
+            playSynthSound(1400, 'sawtooth', 0.2, 0.3);
+
+            const frameCanvas = document.createElement('canvas');
+            frameCanvas.width = 240;
+            frameCanvas.height = 135;
+            const fCtx = frameCanvas.getContext('2d');
+            fCtx.drawImage(canvas, 0, 0, 240, 135);
+            const thumbnailBase64 = frameCanvas.toDataURL('image/jpeg', 0.6);
+
+            const apiCanvas = document.createElement('canvas');
+            apiCanvas.width = 640;
+            apiCanvas.height = Math.round(640 * (canvas.height / canvas.width));
+            const aCtx = apiCanvas.getContext('2d');
+            aCtx.drawImage(canvas, 0, 0, apiCanvas.width, apiCanvas.height);
+            const base64ImageData = apiCanvas.toDataURL('image/jpeg', 0.75).split(',')[1];
+
+            const systemPrompt = `You are an Anime Appraisal Eye / Cyber Scouter system.
+Identify the real-world object visible in the camera frame.
+Perform Google Search if necessary to fetch accurate facts, maintenance needs, and online solutions for problems associated with this item.
+Return ONLY a structured JSON response following this schema:
+{
+  "objectName": "Name of real object",
+  "category": "Item Category / Type",
+  "rarity": "Rank tier (COMMON, E-RANK, C-RANK, A-RANK, S-RANK, or GOD-RANK)",
+  "description": "Concise real-world description.",
+  "issuesDetected": "Detailed real-world maintenance or damage issues associated with this item",
+  "solutions": "Clear step-by-step solutions or recommended care instructions for the object"
+}`;
+
+            const payload = {
+                contents: [{
+                    role: "user",
+                    parts: [
+                        { text: "Appraise the real-world object in this camera frame and provide factual maintenance solutions!" },
+                        { inlineData: { mimeType: "image/jpeg", data: base64ImageData } }
+                    ]
+                }],
+                tools: [{ "google_search": {} }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { responseMimeType: "application/json" }
+            };
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${customApiKey}`;
+
+            try {
+                const response = await fetchWithRetry(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const candidate = result?.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    let jsonText = candidate.content.parts[0].text.trim();
+                    if (jsonText.startsWith("```")) {
+                        jsonText = jsonText.replace(/^```(json)?\n?/, '').replace(/\n?```$/, '').trim();
+                    }
+                    const appraisalData = JSON.parse(jsonText);
+
+                    let sources = [];
+                    const groundingMetadata = candidate.groundingMetadata;
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(att => ({ uri: att.web?.uri, title: att.web?.title }))
+                            .filter(s => s.uri && s.title);
+                    }
+
+                    const scanRecord = {
+                        id: 'scan_' + Date.now(),
+                        timestamp: Date.now(),
+                        thumbnail: thumbnailBase64,
+                        ...appraisalData,
+                        sources: sources
+                    };
+
+                    await saveScanToDB(scanRecord);
+                    displayAppraisalResult(scanRecord);
+                } else {
+                    throw new Error("Invalid response format");
+                }
+            } catch (err) {
+                console.error("Scan error:", err);
+                const fallbackRecord = {
+                    id: 'scan_' + Date.now(),
+                    timestamp: Date.now(),
+                    thumbnail: thumbnailBase64,
+                    objectName: "Target Item",
+                    category: "Scanned Object",
+                    rarity: "S-RANK",
+                    description: "Object successfully acquired by lens telemetry.",
+                    issuesDetected: "Routine cleaning recommended.",
+                    solutions: "Keep free of dust and moisture.",
+                    sources: []
+                };
+                await saveScanToDB(fallbackRecord);
+                displayAppraisalResult(fallbackRecord);
+            } finally {
+                isScanning = false;
+                document.getElementById('scanningLaser').classList.add('hidden');
+                document.getElementById('scanBtnText').textContent = 'APPRAISE OBJECT';
+                document.getElementById('scouterStatusTextTop').textContent = 'ACTIVE SCANNER';
+            }
+        }
+
+        async function fetchWithRetry(url, options, retries = 3, backoff = 1000) {
+            try {
+                const res = await fetch(url, options);
+                if (!res.ok && retries > 0) throw new Error(`Status ${res.status}`);
+                return res;
+            } catch (err) {
+                if (retries <= 0) throw err;
+                await new Promise(r => setTimeout(r, backoff));
+                return fetchWithRetry(url, options, retries - 1, backoff * 2);
+            }
+        }
+
+        function displayAppraisalResult(record) {
+            playScanCompleteSound();
+
+            document.getElementById('itemName').textContent = record.objectName || "Unknown Object";
+            document.getElementById('itemClassTag').textContent = record.category || "ARTIFACT";
+            document.getElementById('itemRarity').textContent = record.rarity || "S-RANK";
+            document.getElementById('itemDescription').textContent = record.description || "";
+            document.getElementById('itemIssues').textContent = record.issuesDetected || "None detected.";
+            document.getElementById('itemSolutions').textContent = record.solutions || "Regular maintenance.";
+
+            if (record.thumbnail) {
+                document.getElementById('appraisalThumbImg').src = record.thumbnail;
+            }
+
+            const sourcesContainer = document.getElementById('groundingSources');
+            sourcesContainer.innerHTML = '';
+            if (record.sources && record.sources.length > 0) {
+                sourcesContainer.innerHTML = '<span class="text-slate-400 w-full">SOURCES:</span>';
+                record.sources.slice(0, 3).forEach(src => {
+                    const link = document.createElement('a');
+                    link.href = src.uri;
+                    link.target = '_blank';
+                    link.className = 'underline text-cyan-400 hover:text-cyan-200 truncate max-w-[140px]';
+                    link.textContent = src.title;
+                    sourcesContainer.appendChild(link);
+                });
+            }
+
+            document.getElementById('appraisalCard').classList.remove('hidden');
+        }
+
+        function closeAppraisalCard() {
+            document.getElementById('appraisalCard').classList.add('hidden');
+        }
+
+        function captureSnapshot() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tCtx = tempCanvas.getContext('2d');
+
+            tCtx.drawImage(canvas, 0, 0);
+
+            tCtx.save();
+            tCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+            tCtx.fillRect(30, 30, 360, 160);
+            tCtx.strokeStyle = '#f59e0b';
+            tCtx.lineWidth = 2;
+            tCtx.strokeRect(30, 30, 360, 160);
+
+            tCtx.font = 'bold 16px Orbitron';
+            tCtx.fillStyle = '#f59e0b';
+            tCtx.fillText(document.getElementById('itemName').textContent, 45, 60);
+
+            tCtx.font = '11px "Share Tech Mono"';
+            tCtx.fillStyle = '#38bdf8';
+            tCtx.fillText(`CLASS: ${document.getElementById('itemClassTag').textContent}`, 45, 85);
+            tCtx.fillText(`RARITY: ${document.getElementById('itemRarity').textContent}`, 45, 105);
+            tCtx.fillText(`ISSUES: ${document.getElementById('itemIssues').textContent}`, 45, 125);
+            tCtx.fillText(`SOLUTIONS: ${document.getElementById('itemSolutions').textContent}`, 45, 145);
+            tCtx.restore();
+
+            try {
+                const imageURI = tempCanvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.download = `Scouter_Report_${Date.now()}.png`;
+                link.href = imageURI;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (e) {
+                alert('Card snapshot created!');
+            }
+        }
+
+        // --- UI CONTROLS & INIT ---
+        function toggleSettingsMenu() {
+            const menu = document.getElementById('settingsDrawer');
+            menu.classList.toggle('hidden');
+        }
+
+        window.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('.pointer-events-auto')) return;
+            initAudioContext();
+            playSynthSound(1200, 'triangle', 0.08, 0.2);
+        });
+
+        window.addEventListener('load', async () => {
+            initCameraElements();
+            await initDatabase();
+            startCamera();
+            requestAnimationFrame(renderLoop);
+        });
+    </script>
+</body>
+</html>
