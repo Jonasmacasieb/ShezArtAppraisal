@@ -230,9 +230,10 @@
         </div>
 
         <!-- APPRAISAL RESULT CARD DISPLAY MODAL (ANIME BOFURI HUD STYLE) -->
+
         <div id="appraisalCard"
-            class="hidden pointer-events-auto my-auto sm:my-0 sm:mt-auto sm:mb-4 mx-auto sm:ml-4 sm:mr-auto max-w-sm w-full bofuri-card p-3 rounded-xl z-30 transition-all transform scale-100">
-            <!-- Top Header Bar -->
+            class="hidden fixed top-4 left-1/2 -translate-x-1/2 pointer-events-auto mx-auto max-w-sm w-[calc(100%-1.5rem)] max-h-[calc(100dvh-8rem)] overflow-y-auto bofuri-card p-3 rounded-xl z-30 transition-all transform scale-100">
+
             <div class="flex justify-between items-center border-b border-cyan-500/40 pb-1.5 mb-2">
                 <div class="flex items-center gap-1.5">
                     <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
@@ -603,31 +604,66 @@
         }
 
         async function startCamera() {
-            if (cameraStream) {
-                cameraStream.getTracks().forEach(track => track.stop());
+            const badge = document.getElementById('camSourceBadge');
+
+            if (!navigator.mediaDevices?.getUserMedia) {
+                isVideoReady = false;
+                badge.textContent = 'CAMERA UNSUPPORTED';
+                alert('Camera requires HTTPS or localhost.');
+                return;
             }
 
             try {
-                const constraints = {
-                    video: {
-                        facingMode: currentFacingMode,
-                        width: { ideal: 854, max: 1280 },
-                        height: { ideal: 480, max: 720 },
-                        frameRate: { ideal: 30 }
-                    },
+                if (cameraStream) {
+                    cameraStream.getTracks().forEach(track => track.stop());
+                    cameraStream = null;
+                }
+
+                isVideoReady = false;
+                badge.textContent = 'SEARCHING CAMERA...';
+
+                // Check available cameras
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const cameras = devices.filter(device => device.kind === 'videoinput');
+
+                if (cameras.length === 0) {
+                    throw new DOMException(
+                        'No camera was detected by the browser.',
+                        'NotFoundError'
+                    );
+                }
+
+                // Request any available camera
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
                     audio: false
-                };
-                cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+                });
+
                 video.srcObject = cameraStream;
                 await video.play();
+
                 isVideoReady = true;
-                document.getElementById('camSourceBadge').textContent =
-                    currentFacingMode === 'user' ? 'FRONT CAM' : 'REAR CAM';
+                badge.textContent = 'CAMERA CONNECTED';
+
             } catch (err) {
+                console.error('Camera error:', err);
+
                 isVideoReady = false;
-                document.getElementById('camSourceBadge').textContent = 'SIMULATION';
+                badge.textContent = 'CAMERA ERROR';
+
+                if (cameraStream) {
+                    cameraStream.getTracks().forEach(track => track.stop());
+                    cameraStream = null;
+                }
+
+                alert(
+                    'Camera Error: ' + err.name +
+                    '\n\n' + err.message +
+                    '\n\nCheck your camera connection and browser permissions.'
+                );
             }
         }
+
 
         function toggleCameraFacing() {
             currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
@@ -1232,50 +1268,6 @@ If no object can be identified, return an empty objects array.
                 // GEMINI API KEY MANAGEMENT
                 // ============================================
 
-                function saveGeminiApiKey() {
-
-                    const input =
-                        document.getElementById("geminiApiKeyInput");
-
-                    const key = input.value.trim();
-
-                    if (!key) {
-                        alert("Please enter a Gemini API key.");
-                        return;
-                    }
-
-                    customApiKey = key;
-
-                    sessionStorage.setItem(
-                        "GEMINI_CUSTOM_API_KEY",
-                        customApiKey
-                    );
-
-                    document.getElementById("apiKeyStatus").textContent =
-                        "API KEY: CONFIGURED";
-
-                    input.value = "";
-
-                    alert("Gemini API key configured for this session.");
-
-                }
-
-
-                // ============================================
-                // LOAD API KEY STATUS
-                // ============================================
-
-                function loadGeminiApiKeyStatus() {
-
-                    customApiKey =
-                        sessionStorage.getItem("GEMINI_CUSTOM_API_KEY") || "";
-
-                    document.getElementById("apiKeyStatus").textContent =
-                        customApiKey
-                            ? "API KEY: CONFIGURED"
-                            : "API KEY: NOT CONFIGURED";
-
-                }
 
                 const requiredFields = [
 
@@ -1606,16 +1598,6 @@ If no object can be identified, return an empty objects array.
 
             }
 
-
-            // THUMBNAIL
-            if (record.thumbnail) {
-
-                document.getElementById("appraisalThumbImg")
-                    .src = record.thumbnail;
-
-            }
-
-
             // SHOW CARD
             document.getElementById("appraisalCard")
                 .classList.remove("hidden");
@@ -1725,6 +1707,42 @@ If no object can be identified, return an empty objects array.
 
         }
 
+
+        function saveGeminiApiKey() {
+
+            const input = document.getElementById("geminiApiKeyInput");
+            const status = document.getElementById("apiKeyStatus");
+
+            const key = input.value.trim();
+
+            if (!key) {
+                alert("Please enter a Gemini API key.");
+                input.focus();
+                return;
+            }
+
+            customApiKey = key;
+
+            sessionStorage.setItem("GEMINI_CUSTOM_API_KEY", key);
+
+            status.textContent = "API KEY: CONFIGURED";
+
+            input.value = "";
+
+            alert("Gemini API key saved successfully!");
+        }
+
+
+        function loadGeminiApiKeyStatus() {
+
+            customApiKey =
+                sessionStorage.getItem("GEMINI_CUSTOM_API_KEY") || "";
+
+            document.getElementById("apiKeyStatus").textContent =
+                customApiKey
+                    ? "API KEY: CONFIGURED"
+                    : "API KEY: NOT CONFIGURED";
+        }
 
         // --- UI CONTROLS & INIT ---
         function toggleSettingsMenu() {
