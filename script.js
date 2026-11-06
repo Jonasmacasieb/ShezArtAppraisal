@@ -452,15 +452,26 @@ async function appraiseObjectWithGemini() {
         });
         if (error) {
             let message = error.message;
-            if (error.context instanceof Response) {
+            const errorContext = error.context;
+            if (errorContext && typeof errorContext.clone === 'function') {
                 try {
-                    const details = await error.context.clone().json();
-                    if (typeof details.error === 'string') message = details.error;
+                    const responseText = await errorContext.clone().text();
+                    try {
+                        const details = JSON.parse(responseText);
+                        if (typeof details.error === 'string') {
+                            message = details.error;
+                        } else if (typeof details.message === 'string') {
+                            message = details.message;
+                        }
+                    } catch (parseError) {
+                        if (responseText.trim()) message = responseText.trim().slice(0, 300);
+                    }
                 } catch (parseError) {
                     console.warn("Could not read appraisal service error details:", parseError);
                 }
             }
-            throw new Error(`Appraisal service failed: ${message}`);
+            const status = Number.isInteger(errorContext?.status) ? ` (HTTP ${errorContext.status})` : '';
+            throw new Error(`Appraisal service failed${status}: ${message}`);
         }
         if (!data?.scanRecord) {
             throw new Error("The appraisal service returned an invalid response.");
