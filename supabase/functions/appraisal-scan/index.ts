@@ -145,28 +145,50 @@ Identify at most 3 objects. Only use evidence visible in the image. Never guess 
     );
     if (!geminiResponse.ok) {
       let providerStatus: string | null = null;
+      let providerMessage: string | null = null;
       try {
         const providerError = await geminiResponse.json();
         providerStatus = typeof providerError?.error?.status === "string"
           ? providerError.error.status
           : null;
+        providerMessage = typeof providerError?.error?.message === "string"
+          ? providerError.error.message
+          : null;
       } catch {
         // Keep the response generic if Google returned a non-JSON error body.
+      }
+      if (providerMessage) {
+        providerMessage = providerMessage
+          .replaceAll(geminiApiKey, "[redacted]")
+          .replace(/AIza[0-9A-Za-z_-]{20,}/g, "[redacted]")
+          .replace(/key=[^&\s"'`]+/gi, "key=[redacted]")
+          .slice(0, 300);
       }
       console.error("Gemini request failed:", {
         httpStatus: geminiResponse.status,
         providerStatus,
+        providerMessage,
       });
 
-      let message = `Gemini returned HTTP ${geminiResponse.status}. Check the function logs for the error category.`;
+      let message = providerMessage
+        ? `Gemini returned HTTP ${geminiResponse.status}: ${providerMessage}`
+        : `Gemini returned HTTP ${geminiResponse.status}. Check the function logs for the error category.`;
       if (geminiResponse.status === 400 || geminiResponse.status === 401) {
-        message = "Gemini rejected the request or API key. Verify the key was copied correctly from Google AI Studio.";
+        message = providerMessage
+          ? `Gemini rejected the request (HTTP ${geminiResponse.status}): ${providerMessage}`
+          : "Gemini rejected the request. Check the API key and request details.";
       } else if (geminiResponse.status === 403) {
-        message = "Gemini denied access. Check API key restrictions, Google AI API access, and billing or project eligibility.";
+        message = providerMessage
+          ? `Gemini denied access (HTTP 403): ${providerMessage}`
+          : "Gemini denied access. Check API key restrictions, Google AI API access, and billing or project eligibility.";
       } else if (geminiResponse.status === 404) {
-        message = "The configured Gemini model is unavailable for this API project.";
+        message = providerMessage
+          ? `Gemini model unavailable (HTTP 404): ${providerMessage}`
+          : "The configured Gemini model is unavailable for this API project.";
       } else if (geminiResponse.status === 429) {
-        message = "Gemini usage limit or quota reached. Check the Google AI Studio project quota and try again later.";
+        message = providerMessage
+          ? `Gemini usage limit reached (HTTP 429): ${providerMessage}`
+          : "Gemini usage limit or quota reached. Check the Google AI Studio project quota and try again later.";
       } else if (geminiResponse.status >= 500) {
         message = "Gemini is temporarily unavailable. Please try again later.";
       }
