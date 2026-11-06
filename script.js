@@ -1,0 +1,681 @@
+// ============================================
+// OBJECT SCOUTER — FULL APPLICATION SCRIPT
+// ============================================
+
+// --- GLOBAL VARIABLES & STATE ---
+let audioCtx = null;
+let isAudioMuted = false;
+
+const DB_NAME = 'ScouterObjectDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'scans';
+let db = null;
+let cachedScansList = [];
+
+let canvas, ctx, video;
+let cameraStream = null;
+let isVideoReady = false;
+let isScanning = false;
+let currentFacingMode = 'environment';
+
+let lastFrameTime = 0;
+const targetFPS = 30;
+const frameInterval = 1000 / targetFPS;
+
+const SCOUTER_CONFIG = {
+    imageMaxWidth: 1024,
+    imageQuality: 0.85,
+    maxObjects: 10,
+    marketRegion: "Philippines",
+    currency: "PHP",
+    model: "gemini-3.8-flash"
+};
+
+let customApiKey = sessionStorage.getItem('GEMINI_CUSTOM_API_KEY') || '';
+
+
+// --- AUDIO SYNTHESIZER ---
+function initAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+function playSynthSound(freq, type, duration, vol = 0.1) {
+    if (isAudioMuted || !audioCtx) return;
+    try {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    } catch (e) { }
+}
+
+function playScanCompleteSound() {
+    if (isAudioMuted || !audioCtx) return;
+    playSynthSound(587.33, 'triangle', 0.15, 0.2);
+    setTimeout(() => playSynthSound(880, 'triangle', 0.25, 0.25), 100);
+}
+
+function toggleAudioMute() {
+    isAudioMuted = !isAudioMuted;
+    const icon = document.getElementById('audioBtnIcon');
+    if (isAudioMuted) {
+        icon.className = 'fa-solid fa-volume-xmark text-red-400';
+    } else {
+        icon.className = 'fa-solid fa-volume-high text-cyan-300';
+        initAudioContext();
+        playSynthSound(800, 'sine', 0.1);
+    }
+}
+
+
+// --- INDEXEDDB LOCAL STORAGE ---
+function initDatabase() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (e) => {
+            const dbInstance = e.target.result;
+            if (!dbInstance.objectStoreNames.contains(STORE_NAME)) {
+                dbInstance.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            }
+        };
+        request.onsuccess = (e) => {
+            db = e.target.result;
+            loadSavedScansFromDB();
+            resolve(db);
+        };
+        request.onerror = (e) => {
+            console.error("IndexedDB error:", e);
+            reject(e);
+        };
+    });
+}
+
+function saveScanToDB(record) {
+    return new Promise((resolve, reject) => {
+        if (!db) return resolve();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.put(record);
+        tx.oncomplete = () => {
+            loadSavedScansFromDB();
+            resolve();
+        };
+        tx.onerror = (e) => reject(e);
+    });
+}
+
+function getAllScansFromDB() {
+    return new Promise((resolve, reject) => {
+        if (!db) return resolve([]);
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = (e) => reject(e);
+    });
+}
+
+function deleteScanFromDB(id) {
+    return new Promise((resolve, reject) => {
+        if (!db) return resolve();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.delete(id);
+        tx.oncomplete = () => {
+            loadSavedScansFromDB();
+            resolve();
+        };
+        tx.onerror = (e) => reject(e);
+    });
+}
+
+function clearAllScans() {
+    if (!confirm('Delete all saved scans from local database?')) return;
+    if (!db) return;
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.clear();
+    tx.oncomplete = () => loadSavedScansFromDB();
+}
+
+async function loadSavedScansFromDB() {
+    try {
+        cachedScansList = await getAllScansFromDB();
+        document.getElementById('inventoryBadgeCount').textContent = cachedScansList.length;
+        renderInventoryList(cachedScansList);
+    } catch (e) {
+        console.error("Failed to load inventory:", e);
+    }
+}
+
+function renderInventoryList(list) {
+    const container = document.getElementById('inventoryList');
+    container.innerHTML = '';
+
+    if (list.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-slate-500 font-mono-tech text-xs">
+                NO SAVED SCANS FOUND IN INDEXEDDB.
+            </div>`;
+        return;
+    }
+
+    list.sort((a, b) => b.timestamp - a.timestamp).forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'bg-slate-900/90 border border-slate-700/60 p-2.5 rounded-xl flex gap-3 items-center hover:border-amber-400/60 transition-all cursor-pointer';
+        card.onclick = () => {
+            displayAppraisalResult(item);
+            toggleInventoryDrawer();
+        };
+
+        const dateStr = new Date(item.timestamp).toLocaleDateString();
+
+        card.innerHTML = `
+            <img src="${item.thumbnail || 'https://placehold.co/100x100/0f172a/06b6d4?text=SCAN'}" 
+                 class="w-14 h-14 object-cover rounded-lg border border-cyan-500/30 flex-shrink-0"
+                 alt="Scan thumbnail">
+            <div class="flex-1 overflow-hidden">
+                <div class="flex justify-between items-start">
+                    <h4 class="font-orbitron font-bold text-xs text-white truncate">${item.objectName}</h4>
+                    <span class="text-[9px] font-mono-tech text-amber-400 font-bold">${item.rarity}</span>
+                </div>
+                <p class="text-[10px] text-slate-400 truncate font-mono-tech">${item.category}</p>
+                <span class="text-[9px] text-slate-500 font-mono-tech">${dateStr}</span>
+            </div>
+            <button onclick="event.stopPropagation(); deleteScanItem('${item.id}')" 
+                    class="text-slate-500 hover:text-red-400 p-1.5 text-xs">
+                <i class="fa-solid fa-trash"></i>
+            </button>
+        `;
+        container.appendChild(card);
+    });
+}
+
+function filterInventory() {
+    const query = document.getElementById("inventorySearch").value.toLowerCase();
+    const filtered = cachedScansList.filter(item => {
+        const searchableText = [
+            item.objectName,
+            item.category,
+            item.rarity,
+            item.scanSummary,
+            ...(Array.isArray(item.objects)
+                ? item.objects.map(object =>
+                    [object.objectName, object.brand, object.model, object.category].join(" ")
+                )
+                : [])
+        ].join(" ").toLowerCase();
+        return searchableText.includes(query);
+    });
+    renderInventoryList(filtered);
+}
+
+async function deleteScanItem(id) {
+    await deleteScanFromDB(id);
+}
+
+function toggleInventoryDrawer() {
+    const drawer = document.getElementById('inventoryDrawer');
+    drawer.classList.toggle('translate-x-full');
+}
+
+
+// --- CAMERA & CANVAS RENDERING ---
+function initCameraElements() {
+    canvas = document.getElementById('appCanvas');
+    ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    video = document.getElementById('webcam');
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+}
+
+function resizeCanvas() {
+    if (canvas) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+}
+
+async function startCamera() {
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+    }
+
+    try {
+        const constraints = {
+            video: {
+                facingMode: currentFacingMode,
+                width: { ideal: 854, max: 1280 },
+                height: { ideal: 480, max: 720 },
+                frameRate: { ideal: 30 }
+            },
+            audio: false
+        };
+        cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = cameraStream;
+        await video.play();
+        isVideoReady = true;
+        document.getElementById('camSourceBadge').textContent =
+            currentFacingMode === 'user' ? 'FRONT CAM' : 'REAR CAM';
+    } catch (err) {
+        isVideoReady = false;
+        document.getElementById('camSourceBadge').textContent = 'SIMULATION';
+    }
+}
+
+function toggleCameraFacing() {
+    currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+    startCamera();
+}
+
+function renderLoop(timestamp) {
+    requestAnimationFrame(renderLoop);
+
+    const elapsed = timestamp - lastFrameTime;
+    if (elapsed < frameInterval) return;
+    lastFrameTime = timestamp - (elapsed % frameInterval);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (isVideoReady && video.readyState >= 2) {
+        ctx.save();
+        if (currentFacingMode === 'user') {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.restore();
+    } else {
+        ctx.fillStyle = '#030712';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.15)';
+        for (let x = 0; x < canvas.width; x += 60) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for (let y = 0; y < canvas.height; y += 60) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+    }
+
+    drawFullscreenGridLines();
+}
+
+function drawFullscreenGridLines() {
+    ctx.save();
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+
+    ctx.strokeStyle = isScanning ? 'rgba(236, 72, 153, 0.6)' : 'rgba(6, 182, 212, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 6]);
+
+    ctx.beginPath();
+    ctx.moveTo(cx - 40, cy); ctx.lineTo(cx + 40, cy);
+    ctx.moveTo(cx, cy - 40); ctx.lineTo(cx, cy + 40);
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.strokeStyle = isScanning ? '#ec4899' : '#06b6d4';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+
+// --- GEMINI VISION AI APPRAISAL — HELPERS ---
+function createReportField(label, value) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "bg-slate-950/80 p-2 rounded border border-slate-700/70";
+
+    const heading = document.createElement("span");
+    heading.className = "text-cyan-400 text-[8px] font-bold uppercase block mb-1";
+    heading.textContent = label;
+
+    const content = document.createElement("p");
+    content.className = "text-slate-200 text-[10px] leading-relaxed whitespace-pre-wrap";
+    content.textContent = value || "Information unavailable.";
+
+    wrapper.appendChild(heading);
+    wrapper.appendChild(content);
+    return wrapper;
+}
+
+function createObjectReportCard(item, index, thumbnail) {
+    const card = document.createElement("div");
+    card.className = "bofuri-card p-3 rounded-xl flex flex-col gap-2";
+
+    const header = document.createElement("div");
+    header.className = "flex items-center gap-3 border-b border-cyan-500/30 pb-2";
+
+    const image = document.createElement("img");
+    image.src = thumbnail || "https://placehold.co/100x100/0f172a/06b6d4?text=OBJECT";
+    image.className = "w-14 h-14 rounded-lg object-cover border border-amber-400";
+    image.alt = "Object preview";
+
+    const titleArea = document.createElement("div");
+    titleArea.className = "flex-1 min-w-0";
+
+    const number = document.createElement("span");
+    number.className = "text-[8px] text-cyan-400 font-mono-tech block";
+    number.textContent = `DETECTED OBJECT #${index + 1}`;
+
+    const name = document.createElement("h3");
+    name.className = "text-amber-300 font-orbitron font-bold text-xs break-words";
+    name.textContent = item.objectName || "Unknown Object";
+
+    const category = document.createElement("p");
+    category.className = "text-slate-400 text-[9px] font-mono-tech";
+    category.textContent = item.category || "Unclassified";
+
+    titleArea.append(number, name, category);
+    header.append(image, titleArea);
+    card.appendChild(header);
+
+    const confidence = document.createElement("div");
+    confidence.className = "text-[9px] text-emerald-400 font-mono-tech";
+    confidence.textContent = "IDENTIFICATION CONFIDENCE: " +
+        (item.identificationConfidence || "Unknown");
+    card.appendChild(confidence);
+
+    const fields = [
+        ["BRAND", item.brand],
+        ["MODEL", item.model],
+        ["IDENTIFICATION NOTES", item.identificationNotes],
+        ["DESCRIPTION", item.description],
+        ["MATERIALS", item.materials],
+        ["PURPOSE AND USES", item.purposeAndUses],
+        ["KEY FEATURES", item.keyFeatures],
+        ["SPECIFICATIONS", item.specifications],
+        ["VISIBLE CONDITION", item.visibleCondition],
+        ["AUTHENTICITY ASSESSMENT", item.authenticity],
+        ["ESTIMATED MARKET VALUE", item.marketValue],
+        ["ISSUES DETECTED", item.issuesDetected],
+        ["RECOMMENDED SOLUTIONS", item.solutions]
+    ];
+
+    fields.forEach(([label, value]) => {
+        card.appendChild(createReportField(label, value));
+    });
+
+    return card;
+}
+
+// --- GEMINI API APPRAISAL CORE ---
+async function appraiseObjectWithGemini() {
+    if (isScanning) return;
+
+    if (!customApiKey || !customApiKey.trim()) {
+        alert("Gemini API key is missing.");
+        return;
+    }
+
+    if (!isVideoReady || !video || video.readyState < 2 || !video.videoWidth) {
+        alert("Camera is not ready.");
+        return;
+    }
+
+    isScanning = true;
+    const scanBtnText = document.getElementById("scanBtnText");
+
+    try {
+        initAudioContext();
+        document.getElementById("scanningLaser").classList.remove("hidden");
+        scanBtnText.textContent = "EXPERT ANALYSIS...";
+        document.getElementById("scouterStatusTextTop").textContent = "DETECTING OBJECTS...";
+
+        // 1. Capture camera frame — scaled to fit API limits
+        const apiCanvas = document.createElement("canvas");
+        const scale = Math.min(1, SCOUTER_CONFIG.imageMaxWidth / video.videoWidth);
+        apiCanvas.width = Math.round(video.videoWidth * scale);
+        apiCanvas.height = Math.round(video.videoHeight * scale);  // ✅ FIXED: complete line
+
+        const apiCtx = apiCanvas.getContext('2d', { alpha: false });
+        apiCtx.drawImage(video, 0, 0, apiCanvas.width, apiCanvas.height);
+
+        // Convert frame to base64 JPEG
+        const base64Image = apiCanvas.toDataURL('image/jpeg', SCOUTER_CONFIG.imageQuality);
+        const imageBase64 = base64Image.split(',')[1];
+
+        // 2. Build structured prompt for Gemini
+        const systemPrompt = `You are ScouterObject — an expert object identifier, appraiser, and condition analyst.
+
+TASK: Analyze the provided image thoroughly. Identify up to ${SCOUTER_CONFIG.maxObjects} distinct visible objects.
+
+REQUIRED OUTPUT — valid JSON only, no markdown, no extra text:
+{
+  "scanSummary": "One clear sentence describing the scene and main subject(s)",
+  "primaryCategory": "Category grouping",
+  "rarity": "Common / Uncommon / Rare / Very Rare / Legendary",
+  "objects": [
+    {
+      "objectName": "Clear specific name",
+      "category": "Subcategory",
+      "brand": "Brand/manufacturer if known",
+      "model": "Model/version if known",
+      "identificationConfidence": "High / Medium / Low",
+      "description": "Detailed physical description",
+      "materials": "List visible materials",
+      "purposeAndUses": "What this is used for",
+      "keyFeatures": "Distinguishing visible features",
+      "specifications": "Visible specs/sizes",
+      "visibleCondition": "Assess visible wear, damage, completeness",
+      "authenticity": "Authenticity assessment based only on what is visible",
+      "marketValue": "Estimated price range in ${SCOUTER_CONFIG.currency} for ${SCOUTER_CONFIG.marketRegion}",
+      "issuesDetected": "Visible flaws, defects, or concerns",
+      "solutions": "Care, repair, or next steps if applicable"
+    }
+  ]
+}
+
+RULES:
+- Only describe what is VISIBLY present in the image
+- If uncertain, state "Uncertain" or "Not visible"
+- Keep values concise but informative
+- Estimate values realistically for ${SCOUTER_CONFIG.marketRegion} market
+- Return ONLY the JSON — no explanations, no notes, no markdown`;
+
+        const requestBody = {
+            contents: [{
+                parts: [
+                    { text: systemPrompt },
+                    {
+                        inline_data: {
+                            mime_type: "image/jpeg",
+                            data: imageBase64
+                        }
+                    }
+                ]
+            }],
+            generationConfig: {
+                temperature: 0.2,
+                maxOutputTokens: 4096
+            }
+        };
+
+        // 3. Call Gemini API
+        const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${SCOUTER_CONFIG.model}:generateContent?key=${customApiKey}`;
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`API Error ${response.status}: ${errText}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+            throw new Error("No valid response from AI model");
+        }
+
+        const rawText = data.candidates[0].content.parts[0].text.trim();
+
+        // 4. Parse and clean JSON response
+        let parsedResult;
+        try {
+            // Strip any markdown code block markers
+            const jsonClean = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/, '');
+            parsedResult = JSON.parse(jsonClean);
+        } catch (parseErr) {
+            // Try extracting JSON if surrounded by other text
+            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error("Could not parse AI response as JSON");
+            parsedResult = JSON.parse(jsonMatch[0]);
+        }
+
+        // 5. Generate thumbnail from captured frame
+        const thumbCanvas = document.createElement('canvas');
+        thumbCanvas.width = 200;
+        thumbCanvas.height = 200;
+        const thumbCtx = thumbCanvas.getContext('2d');
+        thumbCtx.drawImage(video, 0, 0, thumbCanvas.width, thumbCanvas.height);
+        const thumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.7);
+
+        // 6. Prepare database record
+        const scanRecord = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            timestamp: Date.now(),
+            objectName: parsedResult.objects?.[0]?.objectName || "Scanned Object",
+            category: parsedResult.primaryCategory || "General",
+            rarity: parsedResult.rarity || "Unspecified",
+            scanSummary: parsedResult.scanSummary || "",
+            thumbnail: thumbnailDataUrl,
+            objects: parsedResult.objects || []
+        };
+
+        // 7. Save to IndexedDB
+        await saveScanToDB(scanRecord);
+
+        // 8. Update UI with results
+        playScanCompleteSound();
+        displayAppraisalResult(scanRecord);
+
+        document.getElementById("scouterStatusTextTop").textContent = "SCAN COMPLETE";
+
+    } catch (error) {
+        console.error("Appraisal failed:", error);
+        document.getElementById("scouterStatusTextTop").textContent = "SCAN FAILED";
+        alert(`Analysis failed: ${error.message}`);
+    } finally {
+        isScanning = false;
+        document.getElementById("scanningLaser").classList.add("hidden");
+        document.getElementById("scanBtnText").textContent = "START SCAN";
+    }
+}
+
+
+// --- DISPLAY RESULTS ---
+function displayAppraisalResult(scanRecord) {
+    const { objects = [], scanSummary, primaryCategory, rarity } = scanRecord;
+    const panel = document.getElementById('resultsPanel');
+    const container = document.getElementById('resultsContent');
+
+    // Header
+    container.innerHTML = `
+    <div class="mb-3 border-b border-cyan-500/30 pb-2">
+      <p class="text-[10px] text-slate-400 font-mono-tech mb-1">SCAN SUMMARY</p>
+      <p class="text-slate-200 text-xs">${scanSummary || 'No summary available'}</p>
+      <div class="flex gap-3 mt-2">
+        <span class="text-[9px] bg-slate-800 px-2 py-0.5 rounded-full text-cyan-300 font-mono-tech">
+          ${primaryCategory || 'General'}
+        </span>
+        <span class="text-[9px] bg-slate-800 px-2 py-0.5 rounded-full text-amber-300 font-mono-tech">
+          ${rarity || 'Unrated'}
+        </span>
+      </div>
+    </div>
+  `;
+
+    // Object cards
+    if (objects.length === 0) {
+        container.innerHTML += `
+      <p class="text-slate-400 text-xs italic">No objects were identified in this scan.</p>
+    `;
+    } else {
+        objects.forEach((item, idx) => {
+            container.appendChild(createObjectReportCard(item, idx, scanRecord.thumbnail));
+        });
+    }
+
+    // Show panel
+    panel.classList.remove('hidden');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeResultsPanel() {
+    document.getElementById('resultsPanel').classList.add('hidden');
+}
+
+
+// --- API KEY MANAGEMENT ---
+function saveApiKey() {
+    const keyInput = document.getElementById('apiKeyInput');
+    const key = keyInput.value.trim();
+    if (!key) {
+        alert('Please enter a valid API key.');
+        return;
+    }
+    customApiKey = key;
+    sessionStorage.setItem('GEMINI_CUSTOM_API_KEY', key);
+    alert('API key saved for this session!');
+    document.getElementById('apiKeyModal').classList.add('hidden');
+}
+
+function clearApiKey() {
+    customApiKey = '';
+    sessionStorage.removeItem('GEMINI_CUSTOM_API_KEY');
+    document.getElementById('apiKeyInput').value = '';
+    alert('API key cleared.');
+}
+
+function openApiKeyModal() {
+    document.getElementById('apiKeyInput').value = customApiKey;
+    document.getElementById('apiKeyModal').classList.remove('hidden');
+}
+
+function closeApiKeyModal() {
+    document.getElementById('apiKeyModal').classList.add('hidden');
+}
+
+
+// --- INITIALIZATION & EVENT BINDING ---
+document.addEventListener('DOMContentLoaded', async () => {
+    initCameraElements();
+    requestAnimationFrame(renderLoop);
+
+    try {
+        await initDatabase();
+    } catch (e) {
+        console.warn("IndexedDB unavailable — scans won't persist:", e);
+    }
+
+    // Pre-fill API key input if saved
+    if (customApiKey) {
+        document.getElementById('apiKeyInput').value = customApiKey;
+    }
+
+    // Try starting camera
+    await startCamera();
+
+    // Initialize audio on first interaction
+    document.body.addEventListener('click', () => {
+        if (!audioCtx) initAudioContext();
+    }, { once: true });
+});

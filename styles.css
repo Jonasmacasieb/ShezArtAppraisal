@@ -1,0 +1,92 @@
+/* Font Families */
+.font-orbitron {
+    font-family: 'Orbitron', sans-serif;
+}
+
+.font-rajdhani {
+    font-family: 'Rajdhani', sans-serif;
+}
+
+.font-mono-tech {
+    font-family: 'Share Tech Mono', monospace;
+}
+
+/* CRT Scanlines Effect */
+.crt-scanlines::before {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+    background-size: 100% 4px;
+    z-index: 15;
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Cyber Glass Panel */
+.cyber-glass {
+    background: rgba(3, 7, 18, 0.85);
+    border: 1px solid rgba(6, 182, 212, 0.4);
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
+    will-change: transform;
+    transform: translateZ(0);
+}
+
+/* Bofuri Anime HUD Card */
+.bofuri-card {
+    background: rgba(10, 15, 30, 0.94);
+    border: 1px solid rgba(6, 182, 212, 0.7);
+    box-shadow: 
+        0 0 25px rgba(6, 182, 212, 0.35), 
+        inset 0 0 15px rgba(6, 182, 212, 0.1);
+    clip-path: polygon(
+        0 10px, 10px 0, 
+        calc(100% - 10px) 0, 100% 10px, 
+        100% calc(100% - 10px), 
+        calc(100% - 10px) 100%, 
+        10px 100%, 0 calc(100% - 10px)
+    );
+}
+
+.bofuri-thumb-frame {
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.8);
+    position: relative;
+}
+
+.bofuri-pointer-line {
+    position: relative;
+}
+
+.bofuri-pointer-line::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 50%;
+    width: 10px;
+    height: 2px;
+    background: #06b6d4;
+    box-shadow: 0 0 6px #06b6d4;
+}
+
+/* Laser Animation */
+@keyframes laserSweep {
+    0% {
+        top: 0%;
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.8;
+    }
+    100% {
+        top: 100%;
+        opacity: 0.2;
+    }
+}
+
+.animate-laser {
+    animation: laserSweep 1.5s infinite linear;
+}
