@@ -144,11 +144,35 @@ Identify at most 3 objects. Only use evidence visible in the image. Never guess 
       },
     );
     if (!geminiResponse.ok) {
-      console.error("Gemini request failed with status:", geminiResponse.status);
+      let providerStatus: string | null = null;
+      try {
+        const providerError = await geminiResponse.json();
+        providerStatus = typeof providerError?.error?.status === "string"
+          ? providerError.error.status
+          : null;
+      } catch {
+        // Keep the response generic if Google returned a non-JSON error body.
+      }
+      console.error("Gemini request failed:", {
+        httpStatus: geminiResponse.status,
+        providerStatus,
+      });
+
+      let message = `Gemini returned HTTP ${geminiResponse.status}. Check the function logs for the error category.`;
+      if (geminiResponse.status === 400 || geminiResponse.status === 401) {
+        message = "Gemini rejected the request or API key. Verify the key was copied correctly from Google AI Studio.";
+      } else if (geminiResponse.status === 403) {
+        message = "Gemini denied access. Check API key restrictions, Google AI API access, and billing or project eligibility.";
+      } else if (geminiResponse.status === 404) {
+        message = "The configured Gemini model is unavailable for this API project.";
+      } else if (geminiResponse.status === 429) {
+        message = "Gemini usage limit or quota reached. Check the Google AI Studio project quota and try again later.";
+      } else if (geminiResponse.status >= 500) {
+        message = "Gemini is temporarily unavailable. Please try again later.";
+      }
+
       throw new RequestError(
-        geminiResponse.status === 429
-          ? "AI usage limit reached. Please try again later."
-          : "The AI appraisal request failed. Check the server-side Gemini key and model access.",
+        message,
         geminiResponse.status === 429 ? 429 : 502,
       );
     }
