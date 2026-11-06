@@ -27,6 +27,34 @@ const SCOUTER_CONFIG = {
     imageQuality: 0.75
 };
 
+function createImageHash(source) {
+    const hashCanvas = document.createElement('canvas');
+    hashCanvas.width = 9;
+    hashCanvas.height = 8;
+    const hashContext = hashCanvas.getContext('2d', { willReadFrequently: true });
+    if (!hashContext) throw new Error("Could not prepare the image for database matching.");
+
+    hashContext.drawImage(source, 0, 0, 9, 8);
+    const { data } = hashContext.getImageData(0, 0, 9, 8);
+    let hash = 0n;
+
+    for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+            const leftIndex = (y * 9 + x) * 4;
+            const rightIndex = leftIndex + 4;
+            const left = 0.299 * data[leftIndex] +
+                0.587 * data[leftIndex + 1] +
+                0.114 * data[leftIndex + 2];
+            const right = 0.299 * data[rightIndex] +
+                0.587 * data[rightIndex + 1] +
+                0.114 * data[rightIndex + 2];
+            hash = (hash << 1n) | BigInt(left > right ? 1 : 0);
+        }
+    }
+
+    return hash.toString(16).padStart(16, '0');
+}
+
 
 // --- AUDIO SYNTHESIZER ---
 function initAudioContext() {
@@ -446,9 +474,10 @@ async function appraiseObjectWithGemini() {
         // Convert frame to base64 JPEG
         const base64Image = apiCanvas.toDataURL('image/jpeg', SCOUTER_CONFIG.imageQuality);
         const imageBase64 = base64Image.split(',')[1];
+        const imageHash = createImageHash(apiCanvas);
 
         const { data, error } = await window.supabaseClient.functions.invoke('appraisal-scan', {
-            body: { imageBase64 }
+            body: { imageBase64, imageHash }
         });
         if (error) {
             let message = error.message;
@@ -487,7 +516,11 @@ async function appraiseObjectWithGemini() {
         displayAppraisalResult(scanRecord);
 
         document.getElementById("scouterStatusTextTop").textContent =
-            data.matched ? "MATCH FOUND IN SHARED ARCHIVE" : "SCAN COMPLETE — SAVED TO SHARED ARCHIVE";
+            data.matched
+                ? (data.matchedByImage
+                    ? "IMAGE MATCH FOUND IN SHARED ARCHIVE"
+                    : "MATCH FOUND IN SHARED ARCHIVE")
+                : "SCAN COMPLETE — SAVED TO SHARED ARCHIVE";
 
     } catch (error) {
         console.error("Appraisal failed:", error);

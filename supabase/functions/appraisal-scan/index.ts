@@ -83,7 +83,7 @@ Deno.serve(async (request: Request) => {
       throw new RequestError("The appraisal service is not configured.", 503);
     }
 
-    let body: { imageBase64?: unknown };
+    let body: { imageBase64?: unknown; imageHash?: unknown };
     try {
       body = await request.json();
     } catch {
@@ -98,6 +98,13 @@ Deno.serve(async (request: Request) => {
     ) {
       throw new RequestError("A valid image under 6 MB is required.", 400);
     }
+    if (
+      body.imageHash !== undefined &&
+      (typeof body.imageHash !== "string" || !/^[0-9a-f]{16}$/i.test(body.imageHash))
+    ) {
+      throw new RequestError("A valid image fingerprint is required.", 400);
+    }
+    const imageHash = typeof body.imageHash === "string" ? body.imageHash.toLowerCase() : null;
 
     const forwardedIps = request.headers.get("x-forwarded-for")?.split(",");
     const ip = request.headers.get("cf-connecting-ip") ||
@@ -121,6 +128,28 @@ Deno.serve(async (request: Request) => {
     }
     if (allowed !== true) {
       throw new RequestError("Scan limit reached. Please try again in an hour.", 429);
+    }
+
+    if (imageHash) {
+      const { data: imageMatches, error: imageMatchError } = await supabase.rpc(
+        "find_appraisal_by_image_hash",
+        { p_image_hash: imageHash, p_max_distance: 8 },
+      );
+      if (imageMatchError) {
+        console.error("Appraisal image lookup failed:", imageMatchError.message);
+        throw new RequestError("Could not check the shared appraisal catalog.", 503);
+      }
+      const imageMatch = Array.isArray(imageMatches) ? imageMatches[0] : null;
+      if (imageMatch) {
+        const { data: publicUrl } = imageMatch.image_path
+          ? supabase.storage.from(BUCKET).getPublicUrl(imageMatch.image_path)
+          : { data: { publicUrl: null } };
+        return respond({
+          matched: true,
+          matchedByImage: true,
+          scanRecord: toScanRecord(imageMatch, publicUrl.publicUrl),
+        });
+      }
     }
 
     const prompt = `You are an object identification and appraisal assistant. Analyze the image and return JSON only with this shape:
@@ -230,6 +259,15 @@ Identify at most 3 objects. Only use evidence visible in the image. Never guess 
       }
       const match = Array.isArray(matches) ? matches[0] : null;
       if (match) {
+        if (imageHash && !match.image_hash) {
+          const { error: backfillError } = await supabase
+            .from("appraisals")
+            .update({ image_hash: imageHash })
+            .eq("id", match.id);
+          if (backfillError) {
+            console.error("Appraisal image fingerprint backfill failed:", backfillError.message);
+          }
+        }
         const { data: publicUrl } = match.image_path
           ? supabase.storage.from(BUCKET).getPublicUrl(match.image_path)
           : { data: { publicUrl: null } };
@@ -259,6 +297,7 @@ Identify at most 3 objects. Only use evidence visible in the image. Never guess 
       scan_summary: cleanText(appraisal.scanSummary) || "",
       objects,
       image_path: imagePath,
+      ...(imageHash ? { image_hash: imageHash } : {}),
     };
     const { data: savedRow, error: insertError } = await supabase
       .from("appraisals")
