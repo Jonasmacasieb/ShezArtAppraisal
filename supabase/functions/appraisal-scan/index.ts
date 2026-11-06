@@ -213,14 +213,30 @@ Deno.serve(async (request: Request) => {
       throw new RequestError("Scan limit reached. Please try again in an hour.", 429);
     }
 
-    const findBrandModelMatch = async (brand: string | null, model: string | null) => {
-      if (!brand || !model) return null;
-      const { data: matches, error: matchError } = await supabase.rpc(
-        "find_appraisal_match",
-        { p_brand: brand, p_model: model },
+    const findCatalogMatch = async (
+      brand: string | null,
+      model: string | null,
+      objectName: string | null,
+    ) => {
+      if (brand && model) {
+        const { data: matches, error: matchError } = await supabase.rpc(
+          "find_appraisal_match",
+          { p_brand: brand, p_model: model },
+        );
+        if (matchError) {
+          console.error("Appraisal match lookup failed:", matchError.message);
+          throw new RequestError("Could not check the shared appraisal catalog.", 503);
+        }
+        const match = Array.isArray(matches) ? matches[0] ?? null : null;
+        if (match) return match;
+      }
+      if (!objectName) return null;
+      const { data: matches, error: nameMatchError } = await supabase.rpc(
+        "find_appraisal_match_by_object_name",
+        { p_object_name: objectName },
       );
-      if (matchError) {
-        console.error("Appraisal match lookup failed:", matchError.message);
+      if (nameMatchError) {
+        console.error("Appraisal object-name lookup failed:", nameMatchError.message);
         throw new RequestError("Could not check the shared appraisal catalog.", 503);
       }
       return Array.isArray(matches) ? matches[0] ?? null : null;
@@ -255,7 +271,7 @@ Deno.serve(async (request: Request) => {
     if (imageHash) {
       const { data: imageMatches, error: imageMatchError } = await supabase.rpc(
         "find_appraisal_by_image_hash",
-        { p_image_hash: imageHash, p_max_distance: 1 },
+        { p_image_hash: imageHash, p_max_distance: 8 },
       );
       if (imageMatchError) {
         console.error("Appraisal image lookup failed:", imageMatchError.message);
@@ -296,7 +312,12 @@ Use only evidence visible in the image. Never guess a brand or model; use "Not v
     const identifiedPrimaryObject = identifiedObjects[0];
     const identifiedBrand = cleanText(identifiedPrimaryObject.brand);
     const identifiedModel = cleanText(identifiedPrimaryObject.model);
-    const identifiedMatch = await findBrandModelMatch(identifiedBrand, identifiedModel);
+    const identifiedObjectName = cleanText(identifiedPrimaryObject.objectName);
+    const identifiedMatch = await findCatalogMatch(
+      identifiedBrand,
+      identifiedModel,
+      identifiedObjectName,
+    );
     if (identifiedMatch) return await returnMatchedAppraisal(identifiedMatch);
 
     const appraisalPrompt = `You are an object appraisal assistant. Analyze the image and return JSON only with this shape:
@@ -321,9 +342,12 @@ Identify at most 3 objects. Only use evidence visible in the image. Never guess 
     const primaryObject = objects[0];
     const brand = cleanText(primaryObject.brand) || identifiedBrand;
     const model = cleanText(primaryObject.model) || identifiedModel;
-    const appraisalMatch = brand === identifiedBrand && model === identifiedModel
+    const objectName = cleanText(primaryObject.objectName) || identifiedObjectName;
+    const appraisalMatch = brand === identifiedBrand &&
+        model === identifiedModel &&
+        objectName === identifiedObjectName
       ? null
-      : await findBrandModelMatch(brand, model);
+      : await findCatalogMatch(brand, model, objectName);
     if (appraisalMatch) return await returnMatchedAppraisal(appraisalMatch);
 
     const id = crypto.randomUUID();

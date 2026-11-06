@@ -55,6 +55,13 @@ function createImageHash(source) {
     return hash.toString(16).padStart(16, '0');
 }
 
+async function createUploadedImageHash(dataUrl) {
+    const image = new Image();
+    image.src = dataUrl;
+    await image.decode();
+    return createImageHash(image);
+}
+
 
 // --- AUDIO SYNTHESIZER ---
 function initAudioContext() {
@@ -475,7 +482,7 @@ async function appraiseObjectWithGemini() {
         // Convert frame to base64 JPEG
         const base64Image = apiCanvas.toDataURL('image/jpeg', SCOUTER_CONFIG.imageQuality);
         const imageBase64 = base64Image.split(',')[1];
-        const imageHash = createImageHash(apiCanvas);
+        const imageHash = await createUploadedImageHash(base64Image);
 
         const { data, error } = await window.supabaseClient.functions.invoke('appraisal-scan', {
             body: { imageBase64, imageHash }
