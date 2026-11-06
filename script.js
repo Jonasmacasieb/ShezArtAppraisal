@@ -23,8 +23,8 @@ const targetFPS = 30;
 const frameInterval = 1000 / targetFPS;
 
 const SCOUTER_CONFIG = {
-    imageMaxWidth: 768,
-    imageQuality: 0.75
+    imageMaxWidth: 1280,
+    imageQuality: 0.85
 };
 
 function createImageHash(source) {
@@ -264,8 +264,9 @@ function initCameraElements() {
 
 function resizeCanvas() {
     if (canvas) {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.round(window.innerWidth * pixelRatio);
+        canvas.height = Math.round(window.innerHeight * pixelRatio);
     }
 }
 
@@ -278,8 +279,8 @@ async function startCamera() {
         const constraints = {
             video: {
                 facingMode: currentFacingMode,
-                width: { ideal: 854, max: 1280 },
-                height: { ideal: 480, max: 720 },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
                 frameRate: { ideal: 30 }
             },
             audio: false
@@ -519,8 +520,10 @@ async function appraiseObjectWithGemini() {
             data.matched
                 ? (data.matchedByImage
                     ? "IMAGE MATCH FOUND IN SHARED ARCHIVE"
-                    : "MATCH FOUND IN SHARED ARCHIVE")
-                : "SCAN COMPLETE — SAVED TO SHARED ARCHIVE";
+                    : (data.matchedByIdentification
+                        ? "SAVED ITEM FOUND — REUSING APPRAISAL"
+                        : "MATCH FOUND IN SHARED ARCHIVE"))
+                    : "SCAN COMPLETE — SAVED TO SHARED ARCHIVE";
 
     } catch (error) {
         console.error("Appraisal failed:", error);
