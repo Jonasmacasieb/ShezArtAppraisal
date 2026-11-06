@@ -133,13 +133,8 @@
         </div>
         <div class="space-y-2.5 text-xs font-mono-tech">
             <div>
-                <label for="geminiApiKeyInput" class="text-cyan-300 block mb-1.5">GEMINI API KEY:</label>
-                <input id="geminiApiKeyInput" type="password" placeholder="Enter Gemini API key" autocomplete="off"
-                    class="w-full bg-slate-950 border border-cyan-500/40 rounded-lg p-2 text-white outline-none focus:border-cyan-300">
-                <button onclick="saveGeminiApiKey()" class="w-full mt-2 p-2 rounded-lg bg-cyan-500/20 border border-cyan-400 text-cyan-300 font-bold">
-                    SAVE API KEY
-                </button>
-                <p id="apiKeyStatus" class="text-[9px] text-slate-400 mt-1.5">API KEY: NOT CONFIGURED</p>
+                <span class="text-cyan-300 block mb-1.5">GEMINI API ACCESS:</span>
+                <p id="apiKeyStatus" class="text-[9px] text-slate-300">API key is handled by the secure server function.</p>
             </div>
             <div>
                 <span class="text-slate-400 block mb-1">AI APPRAISAL ENGINE:</span>
@@ -176,7 +171,11 @@
         </div>
     </div>
 
-    <!-- Script -->
+    <!-- Supabase client and public project configuration -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+
+    <!-- App Script -->
     <script src="script.js"></script>
 </body>
 </html>

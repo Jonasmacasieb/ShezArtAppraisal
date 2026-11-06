@@ -24,14 +24,8 @@ const frameInterval = 1000 / targetFPS;
 
 const SCOUTER_CONFIG = {
     imageMaxWidth: 768,
-    imageQuality: 0.75,
-    maxObjects: 3,
-    marketRegion: "Philippines",
-    currency: "PHP",
-    model: "gemini-3.8-flash"
+    imageQuality: 0.75
 };
-
-let customApiKey = sessionStorage.getItem('GEMINI_CUSTOM_API_KEY') || '';
 
 
 // --- AUDIO SYNTHESIZER ---
@@ -417,8 +411,8 @@ function createObjectReportCard(item, index, thumbnail) {
 async function appraiseObjectWithGemini() {
     if (isScanning) return;
 
-    if (!customApiKey || !customApiKey.trim()) {
-        alert("Gemini API key is missing.");
+    if (!window.supabaseClient) {
+        alert("Supabase is not configured. Check the Supabase client scripts and project settings.");
         return;
     }
 
@@ -452,125 +446,36 @@ async function appraiseObjectWithGemini() {
         const base64Image = apiCanvas.toDataURL('image/jpeg', SCOUTER_CONFIG.imageQuality);
         const imageBase64 = base64Image.split(',')[1];
 
-        // 2. Build structured prompt for Gemini
-        const systemPrompt = `You are ScouterObject — an expert object identifier, appraiser, and condition analyst.
-
-TASK: Analyze the provided image thoroughly. Identify up to ${SCOUTER_CONFIG.maxObjects} distinct visible objects.
-
-REQUIRED OUTPUT — valid JSON only, no markdown, no extra text:
-{
-  "scanSummary": "One clear sentence describing the scene and main subject(s)",
-  "primaryCategory": "Category grouping",
-  "rarity": "Common / Uncommon / Rare / Very Rare / Legendary",
-  "objects": [
-    {
-      "objectName": "Clear specific name",
-      "category": "Subcategory",
-      "brand": "Brand/manufacturer if known",
-      "model": "Model/version if known",
-      "identificationConfidence": "High / Medium / Low",
-      "description": "Detailed physical description",
-      "materials": "List visible materials",
-      "purposeAndUses": "What this is used for",
-      "keyFeatures": "Distinguishing visible features",
-      "specifications": "Visible specs/sizes",
-      "visibleCondition": "Assess visible wear, damage, completeness",
-      "authenticity": "Authenticity assessment based only on what is visible",
-      "marketValue": "Estimated price range in ${SCOUTER_CONFIG.currency} for ${SCOUTER_CONFIG.marketRegion}",
-      "issuesDetected": "Visible flaws, defects, or concerns",
-      "solutions": "Care, repair, or next steps if applicable"
-    }
-  ]
-}
-
-RULES:
-- Only describe what is VISIBLY present in the image
-- If uncertain, state "Uncertain" or "Not visible"
-- Keep values concise but informative
-- Estimate values realistically for ${SCOUTER_CONFIG.marketRegion} market
-- Return ONLY the JSON — no explanations, no notes, no markdown`;
-
-        const requestBody = {
-            contents: [{
-                parts: [
-                    { text: systemPrompt },
-                    {
-                        inline_data: {
-                            mime_type: "image/jpeg",
-                            data: imageBase64
-                        }
-                    }
-                ]
-            }],
-            generationConfig: {
-                temperature: 0.2,
-                maxOutputTokens: 3072
-            }
-        };
-
-        // 3. Call Gemini API
-        const apiUrl = `https://generativelanguage.googleapis.com/v1/models/${SCOUTER_CONFIG.model}:generateContent?key=${customApiKey}`;
-
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
+        const { data, error } = await window.supabaseClient.functions.invoke('appraisal-scan', {
+            body: { imageBase64 }
         });
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`API Error ${response.status}: ${errText}`);
+        if (error) {
+            let message = error.message;
+            if (error.context instanceof Response) {
+                try {
+                    const details = await error.context.clone().json();
+                    if (typeof details.error === 'string') message = details.error;
+                } catch (parseError) {
+                    console.warn("Could not read appraisal service error details:", parseError);
+                }
+            }
+            throw new Error(`Appraisal service failed: ${message}`);
+        }
+        if (!data?.scanRecord) {
+            throw new Error("The appraisal service returned an invalid response.");
         }
 
-        const data = await response.json();
-
-        if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-            throw new Error("No valid response from AI model");
-        }
-
-        const rawText = data.candidates[0].content.parts[0].text.trim();
-
-        // 4. Parse and clean JSON response
-        let parsedResult;
-        try {
-            // Strip any markdown code block markers
-            const jsonClean = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/, '');
-            parsedResult = JSON.parse(jsonClean);
-        } catch (parseErr) {
-            // Try extracting JSON if surrounded by other text
-            const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error("Could not parse AI response as JSON");
-            parsedResult = JSON.parse(jsonMatch[0]);
-        }
-
-        // 5. Generate thumbnail from captured frame
-        const thumbCanvas = document.createElement('canvas');
-        thumbCanvas.width = 200;
-        thumbCanvas.height = 200;
-        const thumbCtx = thumbCanvas.getContext('2d');
-        thumbCtx.drawImage(frameSource, 0, 0, thumbCanvas.width, thumbCanvas.height);
-        const thumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.7);
-
-        // 6. Prepare database record
         const scanRecord = {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-            timestamp: Date.now(),
-            objectName: parsedResult.objects?.[0]?.objectName || "Scanned Object",
-            category: parsedResult.primaryCategory || "General",
-            rarity: parsedResult.rarity || "Unspecified",
-            scanSummary: parsedResult.scanSummary || "",
-            thumbnail: thumbnailDataUrl,
-            objects: parsedResult.objects || []
+            ...data.scanRecord,
+            timestamp: data.scanRecord.timestamp || Date.now()
         };
-
-        // 7. Save to IndexedDB
         await saveScanToDB(scanRecord);
 
-        // 8. Update UI with results
         playScanCompleteSound();
         displayAppraisalResult(scanRecord);
 
-        document.getElementById("scouterStatusTextTop").textContent = "SCAN COMPLETE";
+        document.getElementById("scouterStatusTextTop").textContent =
+            data.matched ? "MATCH FOUND IN SHARED ARCHIVE" : "SCAN COMPLETE — SAVED TO SHARED ARCHIVE";
 
     } catch (error) {
         console.error("Appraisal failed:", error);
@@ -622,24 +527,6 @@ function toggleSettingsMenu() {
     document.getElementById('settingsDrawer').classList.toggle('hidden');
 }
 
-function saveGeminiApiKey() {
-    const keyInput = document.getElementById('geminiApiKeyInput');
-    const status = document.getElementById('apiKeyStatus');
-    const key = keyInput.value.trim();
-
-    if (!key) {
-        status.textContent = 'API KEY: PLEASE ENTER A KEY';
-        status.className = 'text-[9px] text-amber-400 mt-2';
-        return;
-    }
-
-    customApiKey = key;
-    sessionStorage.setItem('GEMINI_CUSTOM_API_KEY', key);
-    status.textContent = 'API KEY: CONFIGURED FOR THIS SESSION';
-    status.className = 'text-[9px] text-emerald-400 mt-2';
-}
-
-
 // --- INITIALIZATION & EVENT BINDING ---
 document.addEventListener('DOMContentLoaded', async () => {
     initCameraElements();
@@ -651,14 +538,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.warn("IndexedDB unavailable — scans won't persist:", e);
     }
 
-    // Restore the session key in the settings drawer.
-    const apiKeyInput = document.getElementById('geminiApiKeyInput');
-    const apiKeyStatus = document.getElementById('apiKeyStatus');
-    if (customApiKey) {
-        apiKeyInput.value = customApiKey;
-        apiKeyStatus.textContent = 'API KEY: CONFIGURED FOR THIS SESSION';
-        apiKeyStatus.className = 'text-[9px] text-emerald-400 mt-2';
-    }
+    sessionStorage.removeItem('GEMINI_CUSTOM_API_KEY');
 
     // Try starting camera
     await startCamera();
