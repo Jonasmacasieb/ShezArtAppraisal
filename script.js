@@ -525,12 +525,14 @@ async function appraiseObjectWithGemini() {
 
         document.getElementById("scouterStatusTextTop").textContent =
             data.matched
-                ? (data.matchedByImage
-                    ? "IMAGE MATCH FOUND IN SHARED ARCHIVE"
-                    : (data.matchedByIdentification
-                        ? "SAVED ITEM FOUND — REUSING APPRAISAL"
-                        : "MATCH FOUND IN SHARED ARCHIVE"))
-                    : "SCAN COMPLETE — SAVED TO SHARED ARCHIVE";
+                ? (data.matchedByVisualEmbedding
+                    ? "VISUAL MATCH VERIFIED — REUSING APPRAISAL"
+                    : (data.matchedByImage
+                        ? "IMAGE MATCH FOUND IN SHARED ARCHIVE"
+                        : (data.matchedByIdentification
+                            ? "SAVED ITEM FOUND — REUSING APPRAISAL"
+                            : "MATCH FOUND IN SHARED ARCHIVE")))
+                : "SCAN COMPLETE — SAVED TO SHARED ARCHIVE";
 
     } catch (error) {
         console.error("Appraisal failed:", error);
