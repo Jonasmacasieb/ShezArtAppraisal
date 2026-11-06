@@ -23,9 +23,9 @@ const targetFPS = 30;
 const frameInterval = 1000 / targetFPS;
 
 const SCOUTER_CONFIG = {
-    imageMaxWidth: 1024,
-    imageQuality: 0.85,
-    maxObjects: 10,
+    imageMaxWidth: 768,
+    imageQuality: 0.75,
+    maxObjects: 3,
     marketRegion: "Philippines",
     currency: "PHP",
     model: "gemini-3.8-flash"
@@ -422,28 +422,31 @@ async function appraiseObjectWithGemini() {
         return;
     }
 
-    if (!isVideoReady || !video || video.readyState < 2 || !video.videoWidth) {
-        alert("Camera is not ready.");
-        return;
-    }
-
     isScanning = true;
     const scanBtnText = document.getElementById("scanBtnText");
 
     try {
+        const hasCameraFrame = isVideoReady && video && video.readyState >= 2 && video.videoWidth > 0;
+        const frameSource = hasCameraFrame ? video : canvas;
+        const frameWidth = hasCameraFrame ? video.videoWidth : canvas?.width;
+        const frameHeight = hasCameraFrame ? video.videoHeight : canvas?.height;
+        if (!frameSource || !frameWidth || !frameHeight) {
+            throw new Error("The camera preview is not ready yet.");
+        }
+
         initAudioContext();
         document.getElementById("scanningLaser").classList.remove("hidden");
         scanBtnText.textContent = "EXPERT ANALYSIS...";
         document.getElementById("scouterStatusTextTop").textContent = "DETECTING OBJECTS...";
 
-        // 1. Capture camera frame — scaled to fit API limits
+        // Use the live camera when available, otherwise scan the simulation canvas.
         const apiCanvas = document.createElement("canvas");
-        const scale = Math.min(1, SCOUTER_CONFIG.imageMaxWidth / video.videoWidth);
-        apiCanvas.width = Math.round(video.videoWidth * scale);
-        apiCanvas.height = Math.round(video.videoHeight * scale);  // ✅ FIXED: complete line
+        const scale = Math.min(1, SCOUTER_CONFIG.imageMaxWidth / frameWidth);
+        apiCanvas.width = Math.round(frameWidth * scale);
+        apiCanvas.height = Math.round(frameHeight * scale);
 
         const apiCtx = apiCanvas.getContext('2d', { alpha: false });
-        apiCtx.drawImage(video, 0, 0, apiCanvas.width, apiCanvas.height);
+        apiCtx.drawImage(frameSource, 0, 0, apiCanvas.width, apiCanvas.height);
 
         // Convert frame to base64 JPEG
         const base64Image = apiCanvas.toDataURL('image/jpeg', SCOUTER_CONFIG.imageQuality);
@@ -501,7 +504,7 @@ RULES:
             }],
             generationConfig: {
                 temperature: 0.2,
-                maxOutputTokens: 4096
+                maxOutputTokens: 3072
             }
         };
 
@@ -545,7 +548,7 @@ RULES:
         thumbCanvas.width = 200;
         thumbCanvas.height = 200;
         const thumbCtx = thumbCanvas.getContext('2d');
-        thumbCtx.drawImage(video, 0, 0, thumbCanvas.width, thumbCanvas.height);
+        thumbCtx.drawImage(frameSource, 0, 0, thumbCanvas.width, thumbCanvas.height);
         const thumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.7);
 
         // 6. Prepare database record
@@ -583,75 +586,57 @@ RULES:
 
 // --- DISPLAY RESULTS ---
 function displayAppraisalResult(scanRecord) {
-    const { objects = [], scanSummary, primaryCategory, rarity } = scanRecord;
-    const panel = document.getElementById('resultsPanel');
-    const container = document.getElementById('resultsContent');
+    const objects = Array.isArray(scanRecord.objects) ? scanRecord.objects : [];
+    const panel = document.getElementById('appraisalCard');
+    const container = document.getElementById('appraisalObjectsList');
 
-    // Header
-    container.innerHTML = `
-    <div class="mb-3 border-b border-cyan-500/30 pb-2">
-      <p class="text-[10px] text-slate-400 font-mono-tech mb-1">SCAN SUMMARY</p>
-      <p class="text-slate-200 text-xs">${scanSummary || 'No summary available'}</p>
-      <div class="flex gap-3 mt-2">
-        <span class="text-[9px] bg-slate-800 px-2 py-0.5 rounded-full text-cyan-300 font-mono-tech">
-          ${primaryCategory || 'General'}
-        </span>
-        <span class="text-[9px] bg-slate-800 px-2 py-0.5 rounded-full text-amber-300 font-mono-tech">
-          ${rarity || 'Unrated'}
-        </span>
-      </div>
-    </div>
-  `;
+    document.getElementById('scanSummary').textContent =
+        scanRecord.scanSummary || 'No summary available.';
+    document.getElementById('detectedObjectCount').textContent =
+        `${objects.length} OBJECT${objects.length === 1 ? '' : 'S'}`;
+    document.getElementById('itemRarity').textContent =
+        scanRecord.rarity || 'UNRATED';
+    container.replaceChildren();
 
-    // Object cards
     if (objects.length === 0) {
-        container.innerHTML += `
-      <p class="text-slate-400 text-xs italic">No objects were identified in this scan.</p>
-    `;
+        const message = document.createElement('p');
+        message.className = 'text-slate-400 text-xs italic';
+        message.textContent = 'No objects were identified in this scan.';
+        container.appendChild(message);
     } else {
         objects.forEach((item, idx) => {
             container.appendChild(createObjectReportCard(item, idx, scanRecord.thumbnail));
         });
     }
 
-    // Show panel
     panel.classList.remove('hidden');
-    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-function closeResultsPanel() {
-    document.getElementById('resultsPanel').classList.add('hidden');
+function closeAppraisalCard() {
+    document.getElementById('appraisalCard').classList.add('hidden');
 }
 
 
 // --- API KEY MANAGEMENT ---
-function saveApiKey() {
-    const keyInput = document.getElementById('apiKeyInput');
+function toggleSettingsMenu() {
+    document.getElementById('settingsDrawer').classList.toggle('hidden');
+}
+
+function saveGeminiApiKey() {
+    const keyInput = document.getElementById('geminiApiKeyInput');
+    const status = document.getElementById('apiKeyStatus');
     const key = keyInput.value.trim();
+
     if (!key) {
-        alert('Please enter a valid API key.');
+        status.textContent = 'API KEY: PLEASE ENTER A KEY';
+        status.className = 'text-[9px] text-amber-400 mt-2';
         return;
     }
+
     customApiKey = key;
     sessionStorage.setItem('GEMINI_CUSTOM_API_KEY', key);
-    alert('API key saved for this session!');
-    document.getElementById('apiKeyModal').classList.add('hidden');
-}
-
-function clearApiKey() {
-    customApiKey = '';
-    sessionStorage.removeItem('GEMINI_CUSTOM_API_KEY');
-    document.getElementById('apiKeyInput').value = '';
-    alert('API key cleared.');
-}
-
-function openApiKeyModal() {
-    document.getElementById('apiKeyInput').value = customApiKey;
-    document.getElementById('apiKeyModal').classList.remove('hidden');
-}
-
-function closeApiKeyModal() {
-    document.getElementById('apiKeyModal').classList.add('hidden');
+    status.textContent = 'API KEY: CONFIGURED FOR THIS SESSION';
+    status.className = 'text-[9px] text-emerald-400 mt-2';
 }
 
 
@@ -666,9 +651,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.warn("IndexedDB unavailable — scans won't persist:", e);
     }
 
-    // Pre-fill API key input if saved
+    // Restore the session key in the settings drawer.
+    const apiKeyInput = document.getElementById('geminiApiKeyInput');
+    const apiKeyStatus = document.getElementById('apiKeyStatus');
     if (customApiKey) {
-        document.getElementById('apiKeyInput').value = customApiKey;
+        apiKeyInput.value = customApiKey;
+        apiKeyStatus.textContent = 'API KEY: CONFIGURED FOR THIS SESSION';
+        apiKeyStatus.className = 'text-[9px] text-emerald-400 mt-2';
     }
 
     // Try starting camera

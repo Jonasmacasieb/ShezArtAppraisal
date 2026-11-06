@@ -60,47 +60,14 @@
                     <span class="hidden sm:inline font-bold">INVENTORY</span>
                     <span id="inventoryBadgeCount" class="bg-amber-500 text-slate-950 px-1.5 py-0.2 rounded-full text-[10px] font-bold">0</span>
                 </button>
-                <button onclick="toggleSettingsMenu()" class="cyber-glass p-2.5 rounded-xl text-cyan-300 hover:border-cyan-300 hover:bg-cyan-500/20 active:scale-95 transition-all" title="Engine Settings & Security">
-                    <i class="fa-solid fa-gear text-sm"></i>
-                </button>
                 <button onclick="toggleAudioMute()" class="cyber-glass p-2.5 rounded-xl text-cyan-300 hover:border-cyan-300 hover:bg-cyan-500/20 active:scale-95 transition-all" title="Toggle Sound">
                     <i id="audioBtnIcon" class="fa-solid fa-volume-high text-sm"></i>
                 </button>
             </div>
         </div>
 
-        <!-- Settings Drawer -->
-        <div id="settingsDrawer" class="hidden pointer-events-auto my-2 max-w-sm ml-auto w-full cyber-glass p-4 rounded-xl border border-cyan-400/50 shadow-2xl transition-all">
-            <div class="flex justify-between items-center border-b border-cyan-500/30 pb-2 mb-3">
-                <h4 class="font-orbitron text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                    <i class="fa-solid fa-sliders text-amber-400"></i> ENGINE & SECURITY SETTINGS
-                </h4>
-                <button onclick="toggleSettingsMenu()" class="text-slate-400 hover:text-white text-xs">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
-            <div class="space-y-3 text-xs font-mono-tech">
-                <div class="border-t border-cyan-500/30 pt-3">
-                    <label class="text-cyan-300 block mb-2">GEMINI API KEY:</label>
-                    <input id="geminiApiKeyInput" type="password" placeholder="Enter Gemini API key" autocomplete="off"
-                        class="w-full bg-slate-950 border border-cyan-500/40 rounded-lg p-2 text-white outline-none focus:border-cyan-300">
-                    <button onclick="saveGeminiApiKey()" class="w-full mt-2 p-2 rounded-lg bg-cyan-500/20 border border-cyan-400 text-cyan-300 font-bold">
-                        SAVE API KEY
-                    </button>
-                    <p id="apiKeyStatus" class="text-[9px] text-slate-400 mt-2">API KEY: NOT CONFIGURED</p>
-                </div>
-                <div>
-                    <span class="text-slate-400 block mb-1">AI APPRAISAL ENGINE:</span>
-                    <div class="bg-slate-900/80 p-2 rounded-lg border border-slate-700/60 text-emerald-400 font-bold flex items-center justify-between">
-                        <span>GEMINI VISION AI</span>
-                        <i class="fa-solid fa-check-circle text-xs"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- Appraisal Card -->
-        <div id="appraisalCard" class="hidden fixed top-4 left-1/2 -translate-x-1/2 pointer-events-auto mx-auto max-w-sm w-[calc(100%-1.5rem)] max-h-[calc(100dvh-8rem)] overflow-y-auto bofuri-card p-3 rounded-xl z-30 transition-all transform scale-100">
+        <div id="appraisalCard" class="hidden fixed top-4 left-3 right-16 pointer-events-auto mx-auto max-w-sm w-[calc(100%-5rem)] max-h-[calc(100dvh-8rem)] overflow-y-auto bofuri-card p-3 rounded-xl z-30 transition-all transform scale-100">
             <div class="flex justify-between items-center border-b border-cyan-500/40 pb-1.5 mb-2">
                 <div class="flex items-center gap-1.5">
                     <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
@@ -146,6 +113,41 @@
                 title="Switch Camera">
                 <i class="fa-solid fa-camera-rotate text-base"></i>
             </button>
+        </div>
+    </div>
+
+    <button onclick="toggleSettingsMenu()" aria-label="Open engine and security settings" title="Engine Settings & Security"
+        class="fixed right-3 top-1/2 -translate-y-1/2 z-50 pointer-events-auto cyber-glass p-2.5 rounded-xl text-cyan-300 hover:border-cyan-300 hover:bg-cyan-500/20 active:scale-95 transition-all">
+        <i class="fa-solid fa-gear text-sm"></i>
+    </button>
+
+    <!-- Compact Settings Side Panel -->
+    <div id="settingsDrawer" class="hidden fixed top-16 right-3 z-40 pointer-events-auto w-[min(16rem,calc(100vw-5rem))] max-h-[calc(100dvh-5rem)] overflow-y-auto cyber-glass p-3 sm:p-4 rounded-xl border border-cyan-400/50 shadow-2xl">
+        <div class="flex justify-between items-center border-b border-cyan-500/30 pb-2 mb-2">
+            <h4 class="font-orbitron text-[10px] sm:text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                <i class="fa-solid fa-sliders text-amber-400"></i> ENGINE & SECURITY SETTINGS
+            </h4>
+            <button onclick="toggleSettingsMenu()" aria-label="Close settings" class="text-slate-400 hover:text-white text-xs p-1">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="space-y-2.5 text-xs font-mono-tech">
+            <div>
+                <label for="geminiApiKeyInput" class="text-cyan-300 block mb-1.5">GEMINI API KEY:</label>
+                <input id="geminiApiKeyInput" type="password" placeholder="Enter Gemini API key" autocomplete="off"
+                    class="w-full bg-slate-950 border border-cyan-500/40 rounded-lg p-2 text-white outline-none focus:border-cyan-300">
+                <button onclick="saveGeminiApiKey()" class="w-full mt-2 p-2 rounded-lg bg-cyan-500/20 border border-cyan-400 text-cyan-300 font-bold">
+                    SAVE API KEY
+                </button>
+                <p id="apiKeyStatus" class="text-[9px] text-slate-400 mt-1.5">API KEY: NOT CONFIGURED</p>
+            </div>
+            <div>
+                <span class="text-slate-400 block mb-1">AI APPRAISAL ENGINE:</span>
+                <div class="bg-slate-900/80 p-2 rounded-lg border border-slate-700/60 text-emerald-400 font-bold flex items-center justify-between">
+                    <span>GEMINI VISION AI</span>
+                    <i class="fa-solid fa-check-circle text-xs"></i>
+                </div>
+            </div>
         </div>
     </div>
 
