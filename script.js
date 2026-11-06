@@ -418,6 +418,8 @@ async function appraiseObjectWithGemini() {
 
     isScanning = true;
     const scanBtnText = document.getElementById("scanBtnText");
+    const scanningLaser = document.getElementById("scanningLaser");
+    scanningLaser.classList.remove("hidden");
 
     try {
         const hasCameraFrame = isVideoReady && video && video.readyState >= 2 && video.videoWidth > 0;
@@ -429,9 +431,8 @@ async function appraiseObjectWithGemini() {
         }
 
         initAudioContext();
-        document.getElementById("scanningLaser").classList.remove("hidden");
-        scanBtnText.textContent = "EXPERT ANALYSIS...";
-        document.getElementById("scouterStatusTextTop").textContent = "DETECTING OBJECTS...";
+        scanBtnText.textContent = "ANALYZING...";
+        document.getElementById("scouterStatusTextTop").textContent = "ANALYZING IMAGE...";
 
         // Use the live camera when available, otherwise scan the simulation canvas.
         const apiCanvas = document.createElement("canvas");
@@ -483,7 +484,7 @@ async function appraiseObjectWithGemini() {
         alert(`Analysis failed: ${error.message}`);
     } finally {
         isScanning = false;
-        document.getElementById("scanningLaser").classList.add("hidden");
+        scanningLaser.classList.add("hidden");
         document.getElementById("scanBtnText").textContent = "START SCAN";
     }
 }

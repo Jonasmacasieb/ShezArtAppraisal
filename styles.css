@@ -72,7 +72,7 @@
     box-shadow: 0 0 6px #06b6d4;
 }
 
-/* Laser Animation */
+/* Processing indicator; hidden as soon as the appraisal request finishes. */
 @keyframes laserSweep {
     0% {
         top: 0%;
